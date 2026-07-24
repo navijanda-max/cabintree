@@ -100,6 +100,44 @@ const CAT_TO_T776 = { "Utilities": "9220", "Home / Repairs": "8960", "Auto": "92
 const receiptLine = (cat) => CAT_TO_T776[cat] || "9270";
 const PIE = ["#0d9488", "#0891b2", "#f59e0b", "#e11d48", "#8b5cf6", "#10b981", "#64748b", "#ec4899", "#f97316"];
 
+function parseReceiptText(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  let amount = 0;
+  const totalRe = /(?:total|grand total|amount due|balance due)[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(totalRe);
+    if (m) { amount = parseFloat(m[1].replace(/,/g, "")); break; }
+  }
+  if (!amount) {
+    const all = [...text.matchAll(/\$?\s*([\d,]+\.\d{2})/g)].map((m) => parseFloat(m[1].replace(/,/g, "")));
+    if (all.length) amount = Math.max(...all);
+  }
+  let date = "";
+  for (const re of [/\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b/, /\b(\d{1,2}[-/]\d{1,2}[-/]\d{4})\b/, /\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\.?\s+\d{1,2},?\s+\d{4})\b/i]) {
+    const m = text.match(re);
+    if (m) { try { const d = new Date(m[1]); if (!isNaN(d.getTime())) { date = d.toISOString().slice(0, 10); break; } } catch {} }
+  }
+  const merchant = lines.find((l) => l.length > 2 && !/^\d/.test(l)) || lines[0] || "";
+  return { amount, date, merchant };
+}
+function parsePayStubText(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  let gross = 0, taxWithheld = 0, payDate = "";
+  for (const line of lines) {
+    const m = line.match(/gross(?:\s+(?:pay|earnings|income))?[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i);
+    if (m) { gross = parseFloat(m[1].replace(/,/g, "")); break; }
+  }
+  for (const line of lines) {
+    const m = line.match(/(?:income|federal|fed|provincial|prov)?\s*tax(?:\s+(?:deducted|withheld))?[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i);
+    if (m) { taxWithheld = parseFloat(m[1].replace(/,/g, "")); break; }
+  }
+  for (const re of [/(?:pay\s+date[^\d]*)(\d{4}[-/]\d{1,2}[-/]\d{1,2})/i, /\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b/]) {
+    const m = text.match(re);
+    if (m) { try { const d = new Date(m[1]); if (!isNaN(d.getTime())) { payDate = d.toISOString().slice(0, 10); break; } } catch {} }
+  }
+  return { gross, taxWithheld, payDate };
+}
+
 const fmt = (n) => (Number(n) || 0).toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
 const fmt2 = (n) => (Number(n) || 0).toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 2 });
 const num = (v) => (v === "" || v == null ? 0 : parseFloat(v) || 0);
@@ -401,46 +439,45 @@ export default function App() {
   if (onboard) return <Onboarding onFinish={finishOnboarding} />;
 
   const tabs = [
-    { id: "dashboard", label: "Dashboard", icon: Home },
-    { id: "properties", label: "Properties", icon: Building2 },
-    { id: "investments", label: "Investments", icon: PiggyBank },
-    { id: "debts", label: "Debts & Bills", icon: CreditCard },
-    { id: "budget", label: "Budget", icon: Folder },
-    { id: "receipts", label: "Receipts", icon: Receipt },
-    { id: "childcare", label: "Childcare", icon: Baby },
-    { id: "vehicles", label: "Vehicles", icon: Car },
-    { id: "goals", label: "Goals", icon: Target },
-    { id: "household", label: "Household", icon: Wallet },
-    { id: "tax", label: "Tax Report", icon: FileText },
+    { id: "dashboard", label: "Dashboard", short: "Home", icon: Home },
+    { id: "properties", label: "Properties", short: "Property", icon: Building2 },
+    { id: "investments", label: "Investments", short: "Invest", icon: PiggyBank },
+    { id: "debts", label: "Debts & Bills", short: "Debts", icon: CreditCard },
+    { id: "budget", label: "Budget", short: "Budget", icon: Folder },
+    { id: "receipts", label: "Receipts", short: "Receipts", icon: Receipt },
+    { id: "childcare", label: "Childcare", short: "Kids", icon: Baby },
+    { id: "vehicles", label: "Vehicles", short: "Cars", icon: Car },
+    { id: "goals", label: "Goals", short: "Goals", icon: Target },
+    { id: "household", label: "Household", short: "Setup", icon: Wallet },
+    { id: "tax", label: "Tax Report", short: "Tax", icon: FileText },
   ];
 
   return (
     <div className="min-h-screen bg-stone-100 text-stone-800">
-      <header className="bg-gradient-to-br from-teal-700 to-teal-600 text-white px-5 pt-5 pb-6 rounded-b-3xl shadow-sm">
-        <div className="max-w-5xl mx-auto flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-            <Logo size={44} />
+      <header className="bg-gradient-to-br from-teal-700 to-teal-600 text-white px-4 sm:px-5 pt-4 sm:pt-5 pb-4 sm:pb-6 rounded-b-3xl shadow-sm">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Logo size={36} className="sm:w-11 sm:h-11" />
             <div>
-              <h1 className="text-xl font-semibold tracking-tight">Cabintree</h1>
-              <p className="text-teal-100 text-xs mt-0.5">Grow your household finances</p>
+              <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Cabintree</h1>
+              <p className="text-teal-100 text-xs mt-0.5 hidden sm:block">Grow your household finances</p>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1.5">
-            <div className="flex bg-teal-800/40 rounded-full p-0.5 text-xs">
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white text-teal-700 font-medium"><User size={12} /> Personal</span>
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-teal-100"><Users size={12} /> Family</span>
-            </div>
-            <span className="text-teal-200 text-xs">Prototype — login in production</span>
+          <div className="flex bg-teal-800/40 rounded-full p-0.5 text-xs">
+            <span className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-white text-teal-700 font-medium"><User size={11} /> <span className="hidden sm:inline">Personal</span></span>
+            <span className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-teal-100"><Users size={11} /> <span className="hidden sm:inline">Family</span></span>
           </div>
         </div>
       </header>
 
-      <nav className="flex overflow-x-auto bg-white border-b border-stone-200 px-2 sticky top-0 z-10 shadow-sm">
+      <nav className="flex overflow-x-auto bg-white border-b border-stone-200 px-1 sticky top-0 z-10 shadow-sm">
         {tabs.map((t) => {
           const Icon = t.icon;
           return (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 px-3.5 py-3 text-sm whitespace-nowrap border-b-2 transition-colors ${tab === t.id ? "border-teal-600 text-teal-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>
-              <Icon size={16} /> {t.label}
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1.5 px-2 sm:px-3.5 py-2 sm:py-3 text-[10px] sm:text-sm whitespace-nowrap border-b-2 transition-colors ${tab === t.id ? "border-teal-600 text-teal-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>
+              <Icon size={14} />
+              <span className="sm:hidden">{t.short}</span>
+              <span className="hidden sm:inline">{t.label}</span>
             </button>
           );
         })}
@@ -548,9 +585,8 @@ function IncomeTracker({ data, setData }) {
   const delTemplate = (id) => setData((d) => ({ ...d, payTemplates: d.payTemplates.filter((x) => x.id !== id) }));
   const saveTemplate = (person) => {
     const last = (data.incomeLog || []).find((e) => e.person === person && !e.oneTime);
-    const name = window.prompt("Name this template (e.g. 'Biweekly pay'):", "Regular pay");
-    if (!name) return;
-    setData((d) => ({ ...d, payTemplates: [...(d.payTemplates || []), { id: uid(), person, name, gross: last ? num(last.gross) : 0, taxWithheld: last ? num(last.taxWithheld) : 0 }] }));
+    const n = (data.payTemplates || []).filter((t) => t.person === person).length + 1;
+    setData((d) => ({ ...d, payTemplates: [...(d.payTemplates || []), { id: uid(), person, name: `Pay template ${n}`, gross: last ? num(last.gross) : 0, taxWithheld: last ? num(last.taxWithheld) : 0 }] }));
   };
 
   const compress = (file) => new Promise((res, rej) => {
@@ -561,12 +597,10 @@ function IncomeTracker({ data, setData }) {
     if (!file) return; setBusy(true);
     try {
       const dataUrl = await compress(file);
-      const base64 = dataUrl.split(",")[1];
-      const resp = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } }, { type: "text", text: `This is a pay stub. Return ONLY JSON, no markdown: {"payDate":"YYYY-MM-DD" or "","grossThisPeriod":number,"incomeTaxThisPeriod":number}. Use the current pay period's gross pay and income tax deducted (not year-to-date). If unreadable use 0.` }] }] }) });
-      const j = await resp.json();
-      const txt = (j.content || []).filter((i) => i.type === "text").map((i) => i.text).join("").replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(txt);
-      setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: parsed.payDate || new Date().toISOString().slice(0, 10), gross: num(parsed.grossThisPeriod), taxWithheld: num(parsed.incomeTaxThisPeriod), source: "paystub" }, ...(d.incomeLog || [])] }));
+      const { default: Tesseract } = await import("tesseract.js");
+      const { data: { text } } = await Tesseract.recognize(dataUrl, "eng", { logger: () => {} });
+      const { gross, taxWithheld, payDate } = parsePayStubText(text);
+      setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: payDate || new Date().toISOString().slice(0, 10), gross, taxWithheld, source: "paystub" }, ...(d.incomeLog || [])] }));
     } catch (e) {}
     setBusy(false);
   };
@@ -645,12 +679,14 @@ function IncomeTracker({ data, setData }) {
             {log.filter((e) => e.person === pp.key).length > 0 && (
               <div className="mt-2 space-y-1.5 border-t border-stone-100 pt-2">
                 {log.filter((e) => e.person === pp.key).map((e) => (
-                  <div key={e.id} className="grid grid-cols-12 gap-2 items-end">
-                    <TextField label="Pay date" type="date" value={e.date} onChange={(v) => updEntry(e.id, { date: v })} className="col-span-3" />
-                    <NumberField label="Gross" value={e.gross} onChange={(v) => updEntry(e.id, { gross: v })} className="col-span-3" />
-                    <NumberField label="Tax withheld" value={e.taxWithheld} onChange={(v) => updEntry(e.id, { taxWithheld: v })} className="col-span-3" />
-                    <label className="col-span-2 flex items-center gap-1 pb-2 text-xs text-stone-600" title="One-time amounts (bonus, lump sum) aren't annualized"><input type="checkbox" checked={!!e.oneTime} onChange={(ev) => updEntry(e.id, { oneTime: ev.target.checked })} /> 1×</label>
-                    <button onClick={() => delEntry(e.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={13} /></button>
+                  <div key={e.id} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end">
+                    <TextField label="Pay date" type="date" value={e.date} onChange={(v) => updEntry(e.id, { date: v })} className="col-span-1 sm:col-span-3" />
+                    <NumberField label="Gross" value={e.gross} onChange={(v) => updEntry(e.id, { gross: v })} className="col-span-1 sm:col-span-3" />
+                    <NumberField label="Tax withheld" value={e.taxWithheld} onChange={(v) => updEntry(e.id, { taxWithheld: v })} className="col-span-2 sm:col-span-3" />
+                    <div className="col-span-2 sm:col-span-3 flex items-center justify-between pb-2">
+                      <label className="flex items-center gap-1 text-xs text-stone-600" title="One-time amounts (bonus, lump sum) aren't annualized"><input type="checkbox" checked={!!e.oneTime} onChange={(ev) => updEntry(e.id, { oneTime: ev.target.checked })} /> One-time</label>
+                      <button onClick={() => delEntry(e.id)} className="text-rose-400 hover:text-rose-600"><Trash2 size={13} /></button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1255,18 +1291,10 @@ function Receipts({ data, setData, shared }) {
   const extract = async (id, dataUrl) => {
     setBusy(id);
     try {
-      const base64 = dataUrl.split(",")[1];
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: [
-          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
-          { type: "text", text: `Extract details from this receipt. Respond with ONLY a JSON object, no markdown: {"merchant": string, "date": "YYYY-MM-DD" or "", "time": "HH:MM" or "", "amount": number for the grand total, "category": one of ${JSON.stringify(cats)}}. Closest category. Unreadable → "" or 0.` },
-        ] }] }),
-      });
-      const j = await res.json();
-      const text = (j.content || []).filter((i) => i.type === "text").map((i) => i.text).join("").replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(text);
-      updR(id, { label: parsed.merchant || "", date: parsed.date || "", time: parsed.time || "", amount: num(parsed.amount), category: cats.includes(parsed.category) ? parsed.category : (cats[0] || "Other") });
+      const { default: Tesseract } = await import("tesseract.js");
+      const { data: { text } } = await Tesseract.recognize(dataUrl, "eng", { logger: () => {} });
+      const { amount, date, merchant } = parseReceiptText(text);
+      updR(id, { label: merchant, date, amount, category: cats[0] || "Other" });
     } catch (e) {}
     setBusy(null);
   };
@@ -1303,7 +1331,7 @@ function Receipts({ data, setData, shared }) {
         </Card>
       )}
       <Card className="bg-teal-50 border-teal-200">
-        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap or upload a receipt and Claude reads the merchant, date, time, and total. Fix anything off — or type it in. Set "Apply to" so it counts toward a rental or your one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
+        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap or upload a receipt — OCR reads the merchant, date, and total automatically. Accuracy depends on image clarity; fix anything off or type it in. Set "Apply to" so it counts toward a rental or one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
       </Card>
       {receipts.length > 1 && (
         <div className="flex items-center gap-2"><span className="text-xs text-stone-500">Filter</span>
@@ -1638,13 +1666,11 @@ function Household({ data, setHH, setData }) {
           <NumberField label="Person 2 net income (line 23600)" value={data.household.p2Income} onChange={(v) => setHH({ p2Income: v })} />
           <label className="block col-span-2"><span className="text-xs text-stone-500">Province of residence (Dec 31) — sets your tax rates</span>
             <select value={data.household.province || "BC"} onChange={(e) => setHH({ province: e.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">
-              <option value="BC">British Columbia</option>
-              <option value="AB">Alberta</option>
-              <option value="ON">Ontario</option>
+              {Object.entries(PROV_NAMES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
             </select>
           </label>
         </div>
-        <p className="text-xs text-stone-400 mt-2">Net incomes drive the childcare two-thirds limit and who claims it. Province sets the tax brackets used in the estimate (BC, Alberta, Ontario supported; Quebec files separately).</p>
+        <p className="text-xs text-stone-400 mt-2">Net incomes drive the childcare two-thirds limit and who claims it. Province sets the tax brackets used in the estimate. Quebec residents note that federal tax is reduced by a 16.5% abatement since QC funds its own programs — still confirm with a tax professional.</p>
       </Card>
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Dependents</h3><button onClick={addDep} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add dependent</button></div>
@@ -1870,7 +1896,7 @@ function TaxEstimateCard({ data, setData }) {
             <div className="flex justify-between text-stone-500"><span>Total deductions</span><span>−{fmt(res.deductions)}</span></div>
             <div className="flex justify-between font-medium border-t border-stone-200 pt-1"><span>Taxable income</span><span>{fmt(res.taxable)}</span></div>
             <div className="flex justify-between text-stone-500"><span>Federal tax</span><span>{fmt(res.fedTax)}</span></div>
-            <div className="flex justify-between text-stone-500"><span>BC tax</span><span>{fmt(res.bcTax)}</span></div>
+            <div className="flex justify-between text-stone-500"><span>{PROV_NAMES[data.household.province] || "Provincial"} tax</span><span>{fmt(res.bcTax)}</span></div>
             {res.ftc > 0 && <div className="flex justify-between text-stone-500"><span>Foreign tax credit</span><span>−{fmt(res.ftc)}</span></div>}
             <div className="flex justify-between text-stone-500"><span>Est. CPP + EI</span><span>{fmt(res.cppEi)}</span></div>
             <div className="flex justify-between font-medium border-t border-stone-200 pt-1"><span>Total income tax</span><span>{fmt(res.totalTax)}</span></div>
