@@ -1,122 +1,2024 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState, useEffect } from "react";
+import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User } from "lucide-react";
+import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
-function App() {
-  const [count, setCount] = useState(0)
+const T776_LINES = [
+  { code: "8521", label: "Advertising" },
+  { code: "8690", label: "Insurance" },
+  { code: "8710", label: "Interest & bank charges" },
+  { code: "8810", label: "Office expenses" },
+  { code: "8860", label: "Legal, accounting & professional fees" },
+  { code: "8871", label: "Management & admin fees" },
+  { code: "9060", label: "Salaries, wages & benefits" },
+  { code: "9180", label: "Property taxes" },
+  { code: "9200", label: "Travel" },
+  { code: "9220", label: "Utilities" },
+  { code: "9281", label: "Motor vehicle expenses" },
+  { code: "9270", label: "Other expenses" },
+];
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+const PERSONAL_KEY = "family-finance-tracker-v1";
+const FAMILY_KEY = "family-finance-tracker-shared-v1";
+const MODE_KEY = "ftt-mode-v1";
+const ONBOARD_KEY = "cabintree-onboarded-v1";
+const uid = () => Math.random().toString(36).slice(2, 9);
+const currentMonth = () => new Date().toISOString().slice(0, 7);
 
-      <div className="ticks"></div>
+const emptyInvestments = () => ({
+  rrsp: { room: 0, value: 0, contributions: [] },
+  tfsa: { room: 0, value: 0, contributions: [] },
+  resp: { value: 0, contributions: [] },
+  fhsa: { room: 8000, value: 0, contributions: [] },
+  nonreg: [],
+});
+const emptyProperty = () => ({
+  id: uid(), name: "New property", address: "", ownershipPct: 100,
+  purchasePrice: 0, purchaseDate: "", currentValue: 0, valueUpdated: "",
+  mortgage: { balance: 0, rate: 0, payment: 0 },
+  occupancy: "full", personalUsePct: 0, tenants: [], expenses: {}, repairs: [],
+});
+const emptyTaxPerson = () => ({ employment: 0, taxDeducted: 0, rental: 0, otherIncome: 0, rrsp: 0, otherDeductions: 0 });
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+// Multi-year, multi-province tax tables. Federal + BC/AB/ON verified for 2025 & 2026.
+// Other provinces/territories use 2025 brackets (latest published) until 2026 provincial figures are available.
+const PROV_NAMES = { BC: "British Columbia", AB: "Alberta", ON: "Ontario", SK: "Saskatchewan", MB: "Manitoba", NB: "New Brunswick", NS: "Nova Scotia", PE: "Prince Edward Island", NL: "Newfoundland & Labrador", NU: "Nunavut", YT: "Yukon", NT: "Northwest Territories", QC: "Quebec" };
+// 2025 provincial bracket tables (CRA via Wealthsimple). BPAs approximate where noted.
+const PROV_2025 = {
+  BC: { brackets: [[49279, 0.0506], [98560, 0.077], [113158, 0.105], [137407, 0.1229], [186306, 0.147], [259829, 0.168], [Infinity, 0.205]], bpa: 12932, rate: 0.0506, lowInc: { r: 563, start: 25000, claw: 0.0356 } },
+  AB: { brackets: [[60000, 0.08], [151234, 0.10], [181481, 0.12], [241974, 0.13], [362961, 0.14], [Infinity, 0.15]], bpa: 22323, rate: 0.08 },
+  ON: { brackets: [[52886, 0.0505], [105775, 0.0915], [150000, 0.1116], [220000, 0.1216], [Infinity, 0.1316]], bpa: 12747, rate: 0.0505, surtax: { a: 5710, b: 7307 }, lowInc: { r: 294, start: 18569, claw: 0.0505 } },
+  SK: { brackets: [[53463, 0.105], [152750, 0.125], [Infinity, 0.145]], bpa: 18991, rate: 0.105 },
+  MB: { brackets: [[47564, 0.108], [101200, 0.1275], [Infinity, 0.174]], bpa: 15780, rate: 0.108 },
+  NB: { brackets: [[51306, 0.094], [102614, 0.14], [190060, 0.16], [Infinity, 0.195]], bpa: 13396, rate: 0.094, lowInc: { r: 801, start: 21924, claw: 0.03 } },
+  NS: { brackets: [[30507, 0.0879], [61015, 0.1495], [95883, 0.1667], [154650, 0.175], [Infinity, 0.21]], bpa: 11744, rate: 0.0879, lowInc: { r: 286, start: 14926, claw: 0.0505 } },
+  PE: { brackets: [[33328, 0.095], [64656, 0.1347], [105000, 0.166], [140000, 0.1762], [Infinity, 0.19]], bpa: 14250, rate: 0.095, lowInc: { r: 350, start: 22193, claw: 0.05 } },
+  NL: { brackets: [[44192, 0.087], [88382, 0.145], [157792, 0.158], [220910, 0.178], [282214, 0.198], [564429, 0.208], [1128858, 0.213], [Infinity, 0.218]], bpa: 11067, rate: 0.087, lowInc: { r: 989, start: 23735, claw: 0.16 } },
+  NU: { brackets: [[54707, 0.04], [109413, 0.07], [177881, 0.09], [Infinity, 0.115]], bpa: 19274, rate: 0.04 },
+  YT: { brackets: [[57375, 0.064], [114750, 0.09], [177882, 0.109], [500000, 0.128], [Infinity, 0.15]], bpa: 16129, rate: 0.064 },
+  NT: { brackets: [[51964, 0.059], [103930, 0.086], [168967, 0.122], [Infinity, 0.1405]], bpa: 17842, rate: 0.059 },
+  QC: { brackets: [[53255, 0.14], [106495, 0.19], [129590, 0.24], [Infinity, 0.2575]], bpa: 18571, rate: 0.14, quebec: true },
+};
+const TAX_YEARS = {
+  2025: {
+    fed: [[57375, 0.15], [114750, 0.205], [177882, 0.26], [253414, 0.29], [Infinity, 0.33]],
+    fedBPA: 16129, fedRate: 0.15,
+    cppRate: 0.0595, cppMax: 4034.10, cppExempt: 3500, cpp2Max: 396, eiRate: 0.0164, eiMax: 1077.48,
+    prov: PROV_2025,
+    approx: false,
+  },
+  2026: {
+    fed: [[58523, 0.14], [117045, 0.205], [181440, 0.26], [258482, 0.29], [Infinity, 0.33]],
+    fedBPA: 16452, fedRate: 0.14,
+    cppRate: 0.0595, cppMax: 4230.45, cppExempt: 3500, cpp2Max: 416, eiRate: 0.0163, eiMax: 1123.07,
+    prov: {
+      BC: { brackets: [[50363, 0.056], [100728, 0.077], [115648, 0.105], [140430, 0.1229], [190405, 0.147], [265545, 0.168], [Infinity, 0.205]], bpa: 13216, rate: 0.056, lowInc: { r: 575, start: 25570, claw: 0.0356 } },
+      AB: { brackets: [[61200, 0.08], [154259, 0.10], [185111, 0.12], [246813, 0.13], [370220, 0.14], [Infinity, 0.15]], bpa: 22769, rate: 0.08 },
+      ON: { brackets: [[53891, 0.0505], [107785, 0.0915], [150000, 0.1116], [220000, 0.1216], [Infinity, 0.1316]], bpa: 12989, rate: 0.0505, surtax: { a: 5710, b: 7307 }, lowInc: { r: 300, start: 18930, claw: 0.0505 } },
+      SK: { brackets: [[54532, 0.105], [155805, 0.125], [Infinity, 0.145]], bpa: 19491, rate: 0.105 },
+      MB: { brackets: [[47000, 0.108], [100000, 0.1275], [Infinity, 0.174]], bpa: 15780, rate: 0.108 },
+      NB: { brackets: [[52333, 0.094], [104666, 0.14], [193861, 0.16], [Infinity, 0.195]], bpa: 13853, rate: 0.094, lowInc: { r: 817, start: 22358, claw: 0.03 } },
+      NS: { brackets: [[30995, 0.0879], [61991, 0.1495], [97417, 0.1667], [157124, 0.175], [Infinity, 0.21]], bpa: 11744, rate: 0.0879, lowInc: { r: 292, start: 15220, claw: 0.0505 } },
+      PE: { brackets: [[33928, 0.095], [65820, 0.1347], [106890, 0.166], [142250, 0.1762], [Infinity, 0.19]], bpa: 14650, rate: 0.095, lowInc: { r: 350, start: 23000, claw: 0.05 } },
+      NL: { brackets: [[44678, 0.087], [89354, 0.145], [159528, 0.158], [223340, 0.178], [285319, 0.198], [570638, 0.208], [1141275, 0.213], [Infinity, 0.218]], bpa: 11283, rate: 0.087, lowInc: { r: 1008, start: 24191, claw: 0.16 } },
+      NU: { brackets: [[55801, 0.04], [111602, 0.07], [181439, 0.09], [Infinity, 0.115]], bpa: 19655, rate: 0.04 },
+      YT: { brackets: [[58523, 0.064], [117045, 0.09], [181440, 0.109], [500000, 0.128], [Infinity, 0.15]], bpa: 16452, rate: 0.064 },
+      NT: { brackets: [[53003, 0.059], [106009, 0.086], [172346, 0.122], [Infinity, 0.1405]], bpa: 18190, rate: 0.059 },
+      QC: { brackets: [[54345, 0.14], [108680, 0.19], [132245, 0.24], [Infinity, 0.2575]], bpa: 18929, rate: 0.14, quebec: true },
+    },
+    approx: false,
+  },
+};
+const taxTableFor = (year) => TAX_YEARS[year] || { ...TAX_YEARS[2026], approx: true };
+const provFor = (t, code) => t.prov[code] || t.prov.BC;
+// Provincial eligible-dividend tax credit rates (% of grossed-up amount). Published provincial figures.
+const PROV_DIV_CR = { BC: 0.12, AB: 0.0812, ON: 0.10, SK: 0.11, MB: 0.08, NB: 0.14, NS: 0.0885, PE: 0.105, NL: 0.063, NU: 0.0551, YT: 0.1203, NT: 0.115, QC: 0.117 };
+// Provincial NON-eligible dividend credit rates (% of grossed-up amount).
+const PROV_DIV_CR_NE = { BC: 0.0196, AB: 0.0218, ON: 0.029863, SK: 0.018, MB: 0.007835, NB: 0.0275, NS: 0.0299, PE: 0.013, NL: 0.032, NU: 0.0261, YT: 0.0367, NT: 0.06, QC: 0.0342 };
+const QC_FED_ABATEMENT = 0.165; // Quebec residents: basic federal tax reduced 16.5%
+const RECEIPT_EXPIRY_DAYS = 90;
+const CAT_TO_T776 = { "Utilities": "9220", "Home / Repairs": "8960", "Auto": "9281", "Insurance": "8690", "Advertising": "8521" };
+const receiptLine = (cat) => CAT_TO_T776[cat] || "9270";
+const PIE = ["#0d9488", "#0891b2", "#f59e0b", "#e11d48", "#8b5cf6", "#10b981", "#64748b", "#ec4899", "#f97316"];
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+const fmt = (n) => (Number(n) || 0).toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
+const fmt2 = (n) => (Number(n) || 0).toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 2 });
+const num = (v) => (v === "" || v == null ? 0 : parseFloat(v) || 0);
+const addMonths = (d, m) => { const x = new Date(d); x.setMonth(x.getMonth() + m); return x; };
+const fmtMonthYear = (d) => d.toLocaleDateString("en-CA", { year: "numeric", month: "short" });
+
+function amortize(balance, annualRate, payment) {
+  let bal = num(balance);
+  const r = num(annualRate) / 100 / 12;
+  const pmt = num(payment);
+  if (bal <= 0 || pmt <= 0) return null;
+  if (r > 0 && pmt <= bal * r) return { neverPaysOff: true };
+  let totalInterest = 0, months = 0;
+  const series = [{ year: 0, balance: Math.round(bal) }];
+  while (bal > 0 && months < 1200) {
+    const interest = bal * r;
+    let principal = pmt - interest;
+    if (principal <= 0) break;
+    bal -= principal;
+    if (bal < 0) bal = 0;
+    totalInterest += interest;
+    months++;
+    if (months % 12 === 0 || bal === 0) series.push({ year: +(months / 12).toFixed(1), balance: Math.max(0, Math.round(bal)) });
+  }
+  return { months, years: months / 12, totalInterest, series, payoffDate: addMonths(new Date(), months) };
+}
+function progressiveTax(income, brackets) {
+  let tax = 0, prev = 0;
+  for (const [limit, rate] of brackets) {
+    if (income <= prev) break;
+    tax += (Math.min(income, limit) - prev) * rate;
+    prev = limit;
+  }
+  return tax;
+}
+const propEquity = (p) => num(p.currentValue) - num(p.mortgage.balance);
+const propAnnualInterestEstimate = (p) => num(p.mortgage.balance) * (num(p.mortgage.rate) / 100);
+const monthlyRent = (p) => (p.tenants || []).reduce((s, t) => s + num(t.rent), 0);
+const repairsByYear = (p, year, kind) => (p.repairs || []).filter((r) => r.kind === kind && (!year || (r.date || "").slice(0, 4) === String(year)));
+const billMonthly = (b) => (b.frequency === "annual" ? num(b.amount) / 12 : num(b.amount));
+const contribInYear = (list, year) => (list || []).filter((c) => (c.date || "").slice(0, 4) === String(year)).reduce((s, c) => s + num(c.amount), 0);
+function investTotal(inv) {
+  if (!inv) return 0;
+  return num(inv.rrsp?.value) + num(inv.tfsa?.value) + num(inv.resp?.value) + num(inv.fhsa?.value) + (inv.nonreg || []).reduce((s, n) => s + num(n.value), 0);
+}
+function computeTotals(data) {
+  const props = data.properties || [];
+  const investments = investTotal(data.investments);
+  const propValue = props.reduce((s, p) => s + num(p.currentValue), 0);
+  const cash = num(data.household.cash), other = num(data.household.otherAssets);
+  const foreignAssets = (data.household.foreignAssets || []).reduce((s, a) => s + num(a.cad), 0);
+  const assets = propValue + cash + other + investments + foreignAssets;
+  const mortgage = props.reduce((s, p) => s + num(p.mortgage.balance), 0);
+  const carLoans = (data.vehicles || []).reduce((s, v) => s + num(v.loanBalance), 0);
+  const consumer = (data.debts || []).reduce((s, x) => s + num(x.balance), 0);
+  const debt = mortgage + carLoans + consumer;
+  return { assets, debt, netWorth: assets - debt, equity: props.reduce((s, p) => s + propEquity(p), 0), investments, savings: cash + investments, mortgage, carLoans, consumer };
+}
+function computeChildcare(data, year) {
+  const childLimit = (c) => {
+    if (c.disability) return 11000;
+    const age = num(year) - num(c.birthYear);
+    if (age < 7) return 8000;
+    if (age <= 16) return 5000;
+    return 0;
+  };
+  const totalPaid = (data.childcare || []).filter((e) => (e.date || "").slice(0, 4) === String(year)).reduce((s, e) => s + num(e.amount), 0);
+  const limitByAge = (data.children || []).reduce((s, c) => s + childLimit(c), 0);
+  const p1 = num(data.household.p1Income), p2 = num(data.household.p2Income);
+  const lowerIsP1 = p1 <= p2;
+  return { totalPaid, limitByAge, incomeLimit: (2 / 3) * Math.min(p1, p2), deduction: Math.min(totalPaid, limitByAge, (2 / 3) * Math.min(p1, p2)), lowerIsP1, lowerName: lowerIsP1 ? data.household.p1Name : data.household.p2Name, childLimit };
 }
 
-export default App
+const DEFAULTS = () => ({
+  household: { p1Name: "Me", p1Income: 0, p2Name: "Spouse/Partner", p2Income: 0, cash: 0, otherAssets: 0, province: "BC", foreignAssets: [] },
+  properties: [], children: [], childcare: [], vehicles: [], bills: [], goals: [],
+  investments: emptyInvestments(), debts: [], dependents: [], oneTime: [], incomeLog: [], payTemplates: [],
+  receipts: [], receiptCategories: ["Groceries", "Home / Repairs", "Auto", "Medical", "Childcare", "Utilities", "Dining", "Other"],
+  budget: { monthlyIncome: 0, envelopes: [] },
+  taxEstimate: { p1: emptyTaxPerson(), p2: emptyTaxPerson() },
+  snapshots: [], taxYear: new Date().getFullYear(),
+});
+function applyDefaults(p) {
+  const base = DEFAULTS();
+  return {
+    ...base, ...p,
+    household: { ...base.household, ...(p.household || {}) },
+    investments: { ...emptyInvestments(), ...(p.investments || {}) },
+    taxEstimate: { p1: { ...emptyTaxPerson(), ...(p.taxEstimate?.p1 || {}) }, p2: { ...emptyTaxPerson(), ...(p.taxEstimate?.p2 || {}) } },
+  };
+}
+
+/* ---------- Brand logo (reversed coin+pine, for teal header) ---------- */
+function Logo({ size = 40 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 240 240" aria-label="Cabintree">
+      <rect x="0" y="0" width="240" height="240" rx="54" fill="rgba(255,255,255,0.14)" />
+      <circle cx="120" cy="120" r="74" fill="none" stroke="#ffffff" strokeWidth="6" />
+      <circle cx="120" cy="120" r="62" fill="none" stroke="#ffffff" strokeWidth="2" opacity="0.55" />
+      <polygon points="92,150 148,150 120,116" fill="#ffffff" />
+      <polygon points="98,124 142,124 120,92" fill="#ffffff" />
+      <polygon points="104,100 136,100 120,70" fill="#ffffff" />
+      <rect x="115" y="150" width="10" height="16" rx="2" fill="#ffffff" />
+    </svg>
+  );
+}
+
+/* ---------- Onboarding ---------- */
+function Onboarding({ onFinish }) {
+  const [step, setStep] = useState(0);
+  const [s, setS] = useState({ p1Name: "", household: "solo", p2Name: "", province: "BC", hasRental: false, hasKid: false, childName: "", childBirthYear: "" });
+  const set = (patch) => setS((x) => ({ ...x, ...patch }));
+  const total = 5;
+
+  const finish = () => onFinish({
+    household: { p1Name: s.p1Name || "Me", p2Name: s.household === "couple" ? (s.p2Name || "Partner") : "Spouse/Partner", province: s.province },
+    addProperty: s.hasRental,
+    child: s.hasKid ? { name: s.childName, birthYear: s.childBirthYear } : null,
+  });
+
+  const Dot = ({ i }) => <span className={`h-1.5 rounded-full transition-all ${i === step ? "w-6 bg-white" : "w-1.5 bg-white/40"}`} />;
+  const Btn = ({ onClick, children, primary }) => (
+    <button onClick={onClick} className={`px-5 py-2.5 rounded-xl text-sm font-medium transition ${primary ? "bg-white text-teal-700 hover:bg-teal-50" : "text-teal-50 hover:text-white"}`}>{children}</button>
+  );
+  const Choice = ({ active, onClick, title, sub }) => (
+    <button onClick={onClick} className={`w-full text-left px-4 py-3 rounded-xl border-2 transition ${active ? "border-white bg-white/15" : "border-white/25 hover:border-white/50"}`}>
+      <div className="font-medium">{title}</div>{sub && <div className="text-xs text-teal-100 mt-0.5">{sub}</div>}
+    </button>
+  );
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-teal-700 to-emerald-700 text-white flex flex-col">
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="w-full max-w-md">
+          {step === 0 && (
+            <div className="text-center">
+              <div className="flex justify-center mb-4"><Logo size={72} /></div>
+              <h1 className="text-3xl font-bold">Welcome to Cabintree</h1>
+              <p className="text-teal-100 mt-3 leading-relaxed">The Canadian household budgeting app that also handles your rental properties and taxes. Let's set things up — takes about a minute, and you can change anything later.</p>
+            </div>
+          )}
+          {step === 1 && (
+            <div>
+              <h2 className="text-2xl font-semibold mb-1">First, who's this for?</h2>
+              <p className="text-teal-100 text-sm mb-5">This sets up your dashboard and tax estimates.</p>
+              <div className="space-y-2">
+                <Choice active={s.household === "solo"} onClick={() => set({ household: "solo" })} title="Just me" sub="A personal account" />
+                <Choice active={s.household === "couple"} onClick={() => set({ household: "couple" })} title="Me and my partner" sub="A shared family account with split tax estimates" />
+              </div>
+              <div className="mt-4 space-y-2">
+                <input value={s.p1Name} onChange={(e) => set({ p1Name: e.target.value })} placeholder="Your name" className="w-full px-3 py-2.5 rounded-xl bg-white/15 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white" />
+                {s.household === "couple" && <input value={s.p2Name} onChange={(e) => set({ p2Name: e.target.value })} placeholder="Partner's name" className="w-full px-3 py-2.5 rounded-xl bg-white/15 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white" />}
+              </div>
+            </div>
+          )}
+          {step === 2 && (
+            <div>
+              <h2 className="text-2xl font-semibold mb-1">Where do you live?</h2>
+              <p className="text-teal-100 text-sm mb-5">Your province sets the right tax brackets for estimates.</p>
+              <select value={s.province} onChange={(e) => set({ province: e.target.value })} className="w-full px-3 py-3 rounded-xl bg-white text-stone-800 outline-none text-base">
+                {Object.entries(PROV_NAMES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+              </select>
+            </div>
+          )}
+          {step === 3 && (
+            <div>
+              <h2 className="text-2xl font-semibold mb-1">What should we track?</h2>
+              <p className="text-teal-100 text-sm mb-5">Tap any that apply — we'll set up the right sections.</p>
+              <div className="space-y-2">
+                <Choice active={s.hasRental} onClick={() => set({ hasRental: !s.hasRental })} title="🏠 Rental property" sub="T776 tax tracking, tenants, mortgage & equity" />
+                <Choice active={s.hasKid} onClick={() => set({ hasKid: !s.hasKid })} title="👶 Childcare / kids" sub="Childcare deduction & education savings" />
+              </div>
+              {s.hasKid && (
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <input value={s.childName} onChange={(e) => set({ childName: e.target.value })} placeholder="Child's name" className="px-3 py-2.5 rounded-xl bg-white/15 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white" />
+                  <input value={s.childBirthYear} onChange={(e) => set({ childBirthYear: e.target.value })} placeholder="Birth year" className="px-3 py-2.5 rounded-xl bg-white/15 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white" />
+                </div>
+              )}
+            </div>
+          )}
+          {step === 4 && (
+            <div>
+              <h2 className="text-2xl font-semibold mb-3">You're all set, {s.p1Name || "friend"}! 🎉</h2>
+              <p className="text-teal-100 text-sm mb-4 leading-relaxed">Here's how to make the most of Cabintree:</p>
+              <div className="space-y-2.5 text-sm">
+                <div className="bg-white/10 rounded-xl p-3"><strong>📊 Dashboard</strong> — your net worth, trends, and a live tax-bracket bar as you log pay.</div>
+                <div className="bg-white/10 rounded-xl p-3"><strong>🧾 Receipts</strong> — snap a photo and we read the details automatically.</div>
+                <div className="bg-white/10 rounded-xl p-3"><strong>📁 Budget</strong> — give every dollar a job with monthly folders.</div>
+                <div className="bg-white/10 rounded-xl p-3"><strong>📋 Tax Report</strong> — a robust refund estimate for your province, any year.</div>
+              </div>
+              <p className="text-teal-100 text-xs mt-4">Everything saves privately on your device. Fill things in as you go — there's no rush.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="p-6 max-w-md mx-auto w-full">
+        <div className="flex justify-center gap-1.5 mb-4">{Array.from({ length: total }, (_, i) => <Dot key={i} i={i} />)}</div>
+        <div className="flex justify-between items-center">
+          <div>{step > 0 && <Btn onClick={() => setStep(step - 1)}>Back</Btn>}</div>
+          <div className="flex gap-2">
+            {step < total - 1 && step > 0 && <Btn onClick={() => onFinish(null)}>Skip</Btn>}
+            {step < total - 1 ? <Btn primary onClick={() => setStep(step + 1)}>{step === 0 ? "Get started" : "Next"}</Btn> : <Btn primary onClick={finish}>Enter Cabintree</Btn>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [tab, setTab] = useState("dashboard");
+  const [loaded, setLoaded] = useState(false);
+  const [mode, setMode] = useState("personal");
+  const [lastSynced, setLastSynced] = useState(null);
+  const [data, setData] = useState(DEFAULTS());
+  const [onboard, setOnboard] = useState(false);
+  const shared = false; // household switching handled by HouseholdSwitcher in production
+
+
+  useEffect(() => {
+    (async () => {
+      let m = "personal";
+      try { const r = await window.storage.get(MODE_KEY); if (r && r.value) m = r.value; } catch (e) {}
+      try {
+        const res = await window.storage.get(m === "family" ? FAMILY_KEY : PERSONAL_KEY, m === "family");
+        if (res && res.value) setData(applyDefaults(JSON.parse(res.value)));
+      } catch (e) {}
+      try { const o = await window.storage.get(ONBOARD_KEY); if (!o || !o.value) setOnboard(true); } catch (e) { setOnboard(true); }
+      setMode(m);
+      setLoaded(true);
+    })();
+  }, []);
+
+  // persist working data to current scope
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      window.storage.set(shared ? FAMILY_KEY : PERSONAL_KEY, JSON.stringify(data), shared).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [data, loaded, shared]);
+
+  // monthly snapshot upsert (freezes prior months, keeps current month live)
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      setData((d) => {
+        const tot = computeTotals(d);
+        const month = currentMonth();
+        const snaps = d.snapshots || [];
+        const cur = snaps.find((s) => s.month === month);
+        const next = { month, netWorth: Math.round(tot.netWorth), debt: Math.round(tot.debt), savings: Math.round(tot.savings), investments: Math.round(tot.investments) };
+        if (cur && cur.netWorth === next.netWorth && cur.debt === next.debt && cur.savings === next.savings && cur.investments === next.investments) return d;
+        return { ...d, snapshots: [...snaps.filter((s) => s.month !== month), next] };
+      });
+    }, 1300);
+    return () => clearTimeout(t);
+  }, [data, loaded]);
+
+  const switchMode = async (target) => {
+    window.storage.set(MODE_KEY, target).catch(() => {});
+    setMode(target);
+    try {
+      const res = await window.storage.get(target === "family" ? FAMILY_KEY : PERSONAL_KEY, target === "family");
+      if (res && res.value) setData(applyDefaults(JSON.parse(res.value)));
+      // else: current data seeds the new scope on next save
+    } catch (e) {}
+    if (target === "family") setLastSynced(new Date());
+  };
+  const syncNow = async () => {
+    try {
+      const res = await window.storage.get(FAMILY_KEY, true);
+      if (res && res.value) setData(applyDefaults(JSON.parse(res.value)));
+      setLastSynced(new Date());
+    } catch (e) {}
+  };
+
+  const setHH = (patch) => setData((d) => ({ ...d, household: { ...d.household, ...patch } }));
+  const addProperty = () => setData((d) => ({ ...d, properties: [...d.properties, emptyProperty()] }));
+  const updProperty = (id, patch) => setData((d) => ({ ...d, properties: d.properties.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+  const delProperty = (id) => setData((d) => ({ ...d, properties: d.properties.filter((p) => p.id !== id) }));
+
+  if (!loaded) return <div className="p-8 text-stone-500">Loading your data…</div>;
+
+  const finishOnboarding = (setup) => {
+    if (setup) {
+      setData((d) => {
+        const next = { ...d, household: { ...d.household, ...setup.household } };
+        if (setup.addProperty) next.properties = [...d.properties, emptyProperty()];
+        if (setup.child) next.children = [...d.children, { id: uid(), name: setup.child.name || "", birthYear: setup.child.birthYear || "", disability: false }];
+        return next;
+      });
+    }
+    window.storage.set(ONBOARD_KEY, "1").catch(() => {});
+    setOnboard(false);
+    setTab("dashboard");
+  };
+  if (onboard) return <Onboarding onFinish={finishOnboarding} />;
+
+  const tabs = [
+    { id: "dashboard", label: "Dashboard", icon: Home },
+    { id: "properties", label: "Properties", icon: Building2 },
+    { id: "investments", label: "Investments", icon: PiggyBank },
+    { id: "debts", label: "Debts & Bills", icon: CreditCard },
+    { id: "budget", label: "Budget", icon: Folder },
+    { id: "receipts", label: "Receipts", icon: Receipt },
+    { id: "childcare", label: "Childcare", icon: Baby },
+    { id: "vehicles", label: "Vehicles", icon: Car },
+    { id: "goals", label: "Goals", icon: Target },
+    { id: "household", label: "Household", icon: Wallet },
+    { id: "tax", label: "Tax Report", icon: FileText },
+  ];
+
+  return (
+    <div className="min-h-screen bg-stone-100 text-stone-800">
+      <header className="bg-gradient-to-br from-teal-700 to-teal-600 text-white px-5 pt-5 pb-6 rounded-b-3xl shadow-sm">
+        <div className="max-w-5xl mx-auto flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+            <Logo size={44} />
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight">Cabintree</h1>
+              <p className="text-teal-100 text-xs mt-0.5">Grow your household finances</p>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex bg-teal-800/40 rounded-full p-0.5 text-xs">
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white text-teal-700 font-medium"><User size={12} /> Personal</span>
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-teal-100"><Users size={12} /> Family</span>
+            </div>
+            <span className="text-teal-200 text-xs">Prototype — login in production</span>
+          </div>
+        </div>
+      </header>
+
+      <nav className="flex overflow-x-auto bg-white border-b border-stone-200 px-2 sticky top-0 z-10 shadow-sm">
+        {tabs.map((t) => {
+          const Icon = t.icon;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 px-3.5 py-3 text-sm whitespace-nowrap border-b-2 transition-colors ${tab === t.id ? "border-teal-600 text-teal-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>
+              <Icon size={16} /> {t.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      {shared && (
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
+          <div className="bg-teal-50 border border-teal-200 rounded-xl px-3 py-2 text-xs text-teal-800 flex items-center gap-2">
+            <Users size={14} /> Shared family account — you and your partner edit the same data. Tap Sync to pull their latest changes (most recent save wins).
+          </div>
+        </div>
+      )}
+
+      <main className="p-4 sm:p-6 max-w-5xl mx-auto">
+        {tab === "dashboard" && <Dashboard data={data} setData={setData} />}
+        {tab === "properties" && <Properties properties={data.properties} addProperty={addProperty} updProperty={updProperty} delProperty={delProperty} />}
+        {tab === "investments" && <Investments data={data} setData={setData} />}
+        {tab === "debts" && <DebtsBills data={data} setData={setData} />}
+        {tab === "budget" && <Budget data={data} setData={setData} />}
+        {tab === "receipts" && <Receipts data={data} setData={setData} shared={shared} />}
+        {tab === "childcare" && <Childcare data={data} setData={setData} />}
+        {tab === "vehicles" && <Vehicles data={data} setData={setData} />}
+        {tab === "goals" && <Goals data={data} setData={setData} />}
+        {tab === "household" && <Household data={data} setHH={setHH} setData={setData} />}
+        {tab === "tax" && <TaxReport data={data} setData={setData} />}
+      </main>
+      <div className="h-8" />
+    </div>
+  );
+}
+
+/* ---------- UI building blocks ---------- */
+function NumberField({ label, value, onChange, prefix = "$", className = "" }) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="text-xs text-stone-500">{label}</span>
+      <div className="flex items-center mt-0.5 border border-stone-300 rounded-lg bg-white focus-within:ring-2 focus-within:ring-teal-500">
+        {prefix && <span className="pl-2 text-stone-400 text-sm">{prefix}</span>}
+        <input type="number" value={value === 0 ? "" : value} placeholder="0" onChange={(e) => onChange(num(e.target.value))} className="w-full px-2 py-1.5 text-sm bg-transparent outline-none rounded-lg" />
+      </div>
+    </label>
+  );
+}
+function TextField({ label, value, onChange, placeholder = "", type = "text", className = "" }) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="text-xs text-stone-500">{label}</span>
+      <input type={type} value={value || ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white outline-none focus:ring-2 focus:ring-teal-500" />
+    </label>
+  );
+}
+function Stat({ label, value, sub, tone = "slate" }) {
+  const tones = { slate: "text-stone-800", green: "text-emerald-600", red: "text-rose-600" };
+  return (
+    <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-4">
+      <div className="text-xs text-stone-500">{label}</div>
+      <div className={`text-xl font-semibold mt-1 ${tones[tone]}`}>{value}</div>
+      {sub && <div className="text-xs text-stone-400 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+function Card({ children, className = "" }) {
+  return <div className={`bg-white rounded-2xl border border-stone-200 shadow-sm p-4 ${className}`}>{children}</div>;
+}
+function ChartCard({ title, children, hint }) {
+  return (
+    <Card>
+      <div className="flex items-baseline justify-between mb-2">
+        <h3 className="font-medium text-stone-700 text-sm">{title}</h3>
+        {hint && <span className="text-xs text-stone-400">{hint}</span>}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
+/* ---------- Income & tax-bracket progression ---------- */
+function IncomeTracker({ data, setData }) {
+  const yr = new Date().getFullYear();
+  const t = taxTableFor(yr);
+  const provCode = data.household.province || "BC";
+  const p = provFor(t, provCode);
+  const log = (data.incomeLog || []).filter((e) => (e.date || "").slice(0, 4) === String(yr));
+  const hasP2 = (data.household.p2Name && data.household.p2Name !== "Spouse/Partner") || log.some((e) => e.person === "p2");
+  const people = hasP2 ? [{ key: "p1", name: data.household.p1Name || "Me" }, { key: "p2", name: data.household.p2Name || "Partner" }] : [{ key: "p1", name: data.household.p1Name || "Me" }];
+  const [busy, setBusy] = useState(false);
+
+  const ytdFor = (key) => log.filter((e) => e.person === key).reduce((s, e) => s + num(e.gross), 0);
+  const taxFor = (key) => log.filter((e) => e.person === key).reduce((s, e) => s + num(e.taxWithheld), 0);
+  // recurring vs one-time split, so bonuses aren't annualized as if they repeat
+  const recurringGross = (key) => log.filter((e) => e.person === key && !e.oneTime).reduce((s, e) => s + num(e.gross), 0);
+  const recurringTax = (key) => log.filter((e) => e.person === key && !e.oneTime).reduce((s, e) => s + num(e.taxWithheld), 0);
+  const oneTimeGross = (key) => log.filter((e) => e.person === key && e.oneTime).reduce((s, e) => s + num(e.gross), 0);
+  const oneTimeTax = (key) => log.filter((e) => e.person === key && e.oneTime).reduce((s, e) => s + num(e.taxWithheld), 0);
+  const monthsElapsed = (new Date().getMonth() + 1);
+  const annualize = (v) => (monthsElapsed > 0 ? (v / monthsElapsed) * 12 : 0);
+
+  const addEntry = (person) => setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: new Date().toISOString().slice(0, 10), gross: 0, taxWithheld: 0, oneTime: false, source: "manual" }, ...(d.incomeLog || [])] }));
+  const updEntry = (id, patch) => setData((d) => ({ ...d, incomeLog: d.incomeLog.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
+  const delEntry = (id) => setData((d) => ({ ...d, incomeLog: d.incomeLog.filter((e) => e.id !== id) }));
+
+  // recurring templates: save a typical paycheque, apply with one tap
+  const templates = (data.payTemplates || []);
+  const applyTemplate = (tpl) => setData((d) => ({ ...d, incomeLog: [{ id: uid(), person: tpl.person, date: new Date().toISOString().slice(0, 10), gross: num(tpl.gross), taxWithheld: num(tpl.taxWithheld), oneTime: false, source: "template" }, ...(d.incomeLog || [])] }));
+  const delTemplate = (id) => setData((d) => ({ ...d, payTemplates: d.payTemplates.filter((x) => x.id !== id) }));
+  const saveTemplate = (person) => {
+    const last = (data.incomeLog || []).find((e) => e.person === person && !e.oneTime);
+    const name = window.prompt("Name this template (e.g. 'Biweekly pay'):", "Regular pay");
+    if (!name) return;
+    setData((d) => ({ ...d, payTemplates: [...(d.payTemplates || []), { id: uid(), person, name, gross: last ? num(last.gross) : 0, taxWithheld: last ? num(last.taxWithheld) : 0 }] }));
+  };
+
+  const compress = (file) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => { const img = new Image(); img.onload = () => { const max = 1100; let { width, height } = img; if (width > max || height > max) { const s = max / Math.max(width, height); width = Math.round(width * s); height = Math.round(height * s); } const c = document.createElement("canvas"); c.width = width; c.height = height; c.getContext("2d").drawImage(img, 0, 0, width, height); res(c.toDataURL("image/jpeg", 0.6)); }; img.onerror = rej; img.src = r.result; }; r.onerror = rej; r.readAsDataURL(file);
+  });
+  const uploadStub = async (person, file) => {
+    if (!file) return; setBusy(true);
+    try {
+      const dataUrl = await compress(file);
+      const base64 = dataUrl.split(",")[1];
+      const resp = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } }, { type: "text", text: `This is a pay stub. Return ONLY JSON, no markdown: {"payDate":"YYYY-MM-DD" or "","grossThisPeriod":number,"incomeTaxThisPeriod":number}. Use the current pay period's gross pay and income tax deducted (not year-to-date). If unreadable use 0.` }] }] }) });
+      const j = await resp.json();
+      const txt = (j.content || []).filter((i) => i.type === "text").map((i) => i.text).join("").replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(txt);
+      setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: parsed.payDate || new Date().toISOString().slice(0, 10), gross: num(parsed.grossThisPeriod), taxWithheld: num(parsed.incomeTaxThisPeriod), source: "paystub" }, ...(d.incomeLog || [])] }));
+    } catch (e) {}
+    setBusy(false);
+  };
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="font-medium text-stone-700 text-sm">Income & tax brackets · {yr}</h3>
+        <span className="text-xs text-stone-400">{PROV_NAMES[provCode]}</span>
+      </div>
+      <p className="text-xs text-stone-400 mb-3">Log pay or upload a pay stub — your income fills in across the year, marking each tax bracket you cross and comparing estimated vs. actual tax.</p>
+
+      {people.map((pp) => {
+        const ytd = ytdFor(pp.key);
+        const withheld = taxFor(pp.key);
+        // project: annualize recurring pay, add one-time amounts once
+        const projected = annualize(recurringGross(pp.key)) + oneTimeGross(pp.key);
+        const projWithholding = annualize(recurringTax(pp.key)) + oneTimeTax(pp.key);
+        const projTaxFull = computeTax({ employment: projected }, yr, { province: provCode }).totalTax;
+        const projResult = projWithholding - projTaxFull;
+        const hasOneTime = oneTimeGross(pp.key) > 0;
+        const marginal = marginalAt(ytd, t, p);
+        const fedB = t.fed;
+        const maxScale = Math.max(projected, ytd, fedB[1][0]) * 1.05 || fedB[1][0];
+        const curBracketIdx = fedB.findIndex(([lim]) => ytd <= lim);
+        return (
+          <div key={pp.key} className="mb-4 last:mb-2">
+            <div className="flex justify-between items-baseline mb-1">
+              <span className="text-sm font-medium text-stone-700">{pp.name}</span>
+              <span className="text-xs text-stone-500">YTD {fmt(ytd)} · marginal {marginal.toFixed(0)}%</span>
+            </div>
+            {/* bracket bar */}
+            <div className="relative h-7 rounded-lg overflow-hidden bg-stone-100">
+              {fedB.map(([lim, rate], i) => {
+                const start = i === 0 ? 0 : fedB[i - 1][0];
+                const end = Math.min(lim, maxScale);
+                if (start >= maxScale) return null;
+                const left = (start / maxScale) * 100;
+                const width = ((end - start) / maxScale) * 100;
+                const shades = ["#ccfbf1", "#99f6e4", "#5eead4", "#2dd4bf", "#14b8a6"];
+                return <div key={i} className="absolute top-0 h-full" style={{ left: `${left}%`, width: `${width}%`, background: shades[Math.min(i, shades.length - 1)], borderRight: "1px solid #fff" }} title={`${(rate * 100).toFixed(0)}% bracket`} />;
+              })}
+              {/* YTD fill marker */}
+              <div className="absolute top-0 h-full bg-teal-700/30 border-r-2 border-teal-800" style={{ width: `${Math.min(100, (ytd / maxScale) * 100)}%` }} />
+              {/* projected marker */}
+              {projected > ytd && <div className="absolute top-0 h-full border-r-2 border-dashed border-amber-500" style={{ width: `${Math.min(100, (projected / maxScale) * 100)}%` }} title="Projected year-end" />}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-stone-500">
+              <span>Crossed into the {curBracketIdx >= 0 ? (fedB[curBracketIdx][1] * 100).toFixed(0) : "top"}% federal bracket</span>
+              <span className="text-amber-600">Projected year-end: {fmt(projected)}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-2 text-center text-xs">
+              <div className="bg-stone-50 rounded-lg p-2"><div className="text-stone-400">Projected full-year tax</div><div className="font-semibold text-sm">{fmt(projTaxFull)}</div></div>
+              <div className="bg-stone-50 rounded-lg p-2"><div className="text-stone-400">Projected withholding</div><div className="font-semibold text-sm">{fmt(projWithholding)}</div></div>
+              <div className={`rounded-lg p-2 ${projResult >= 0 ? "bg-emerald-50" : "bg-rose-50"}`}><div className="text-stone-400">Projected {projResult >= 0 ? "refund" : "owing"}</div><div className={`font-semibold text-sm ${projResult >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{projResult >= 0 ? "+" : "−"}{fmt(Math.abs(projResult))}</div></div>
+            </div>
+            <div className="text-xs text-stone-400 mt-1 text-center">So far this year: {fmt(ytd)} earned · {fmt(withheld)} tax withheld{hasOneTime ? ` · incl. ${fmt(oneTimeGross(pp.key))} one-time (not annualized)` : ""}</div>
+            <div className="flex flex-wrap gap-3 mt-2 items-center">
+              <button onClick={() => addEntry(pp.key)} className="text-xs flex items-center gap-1 text-teal-700"><Plus size={12} /> Log pay</button>
+              <label className="text-xs flex items-center gap-1 text-teal-700 cursor-pointer">{busy ? <Sparkles size={12} className="animate-pulse" /> : <Camera size={12} />} Upload pay stub<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => uploadStub(pp.key, e.target.files[0])} /></label>
+              <button onClick={() => saveTemplate(pp.key)} className="text-xs text-stone-500 hover:text-stone-700">Save as template</button>
+            </div>
+            {/* recurring templates */}
+            {templates.filter((tp) => tp.person === pp.key).length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {templates.filter((tp) => tp.person === pp.key).map((tp) => (
+                  <span key={tp.id} className="flex items-center gap-1.5 bg-teal-50 border border-teal-200 rounded-full pl-3 pr-1.5 py-1 text-xs">
+                    <button onClick={() => applyTemplate(tp)} className="text-teal-800 font-medium">{tp.name} · {fmt(tp.gross)}</button>
+                    <button onClick={() => delTemplate(tp.id)} className="text-teal-400 hover:text-rose-500">×</button>
+                  </span>
+                ))}
+                <span className="text-xs text-stone-400 self-center">tap to log instantly</span>
+              </div>
+            )}
+            {/* entries */}
+            {log.filter((e) => e.person === pp.key).length > 0 && (
+              <div className="mt-2 space-y-1.5 border-t border-stone-100 pt-2">
+                {log.filter((e) => e.person === pp.key).map((e) => (
+                  <div key={e.id} className="grid grid-cols-12 gap-2 items-end">
+                    <TextField label="Pay date" type="date" value={e.date} onChange={(v) => updEntry(e.id, { date: v })} className="col-span-3" />
+                    <NumberField label="Gross" value={e.gross} onChange={(v) => updEntry(e.id, { gross: v })} className="col-span-3" />
+                    <NumberField label="Tax withheld" value={e.taxWithheld} onChange={(v) => updEntry(e.id, { taxWithheld: v })} className="col-span-3" />
+                    <label className="col-span-2 flex items-center gap-1 pb-2 text-xs text-stone-600" title="One-time amounts (bonus, lump sum) aren't annualized"><input type="checkbox" checked={!!e.oneTime} onChange={(ev) => updEntry(e.id, { oneTime: ev.target.checked })} /> 1×</label>
+                    <button onClick={() => delEntry(e.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <p className="text-xs text-stone-400">Projections annualize your recurring pay to a full year and add one-time amounts (tick "1×" for bonuses or lump sums) just once — so a bonus doesn't inflate the projection as if it repeats. It sharpens as more pay periods are logged.</p>
+    </Card>
+  );
+}
+
+/* ---------- Dashboard ---------- */
+function Dashboard({ data, setData }) {
+  const tot = computeTotals(data);
+  const rentMonthly = data.properties.reduce((s, p) => s + monthlyRent(p), 0);
+  const mortgagePay = data.properties.reduce((s, p) => s + num(p.mortgage.payment), 0);
+  const carPay = data.vehicles.reduce((s, v) => s + num(v.payment), 0);
+  const debtPay = (data.debts || []).reduce((s, x) => s + num(x.payment), 0);
+  const billsMonthly = (data.bills || []).reduce((s, b) => s + billMonthly(b), 0);
+  const netFlow = rentMonthly - mortgagePay - carPay - debtPay - billsMonthly;
+
+  const snaps = [...(data.snapshots || [])].sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+  const cur = snaps[snaps.length - 1], prev = snaps[snaps.length - 2];
+  const delta = prev ? tot.netWorth - prev.netWorth : null;
+
+  // insights
+  const insights = [];
+  if (prev) {
+    const dDebt = tot.debt - prev.debt, dSav = tot.savings - prev.savings, dNW = tot.netWorth - prev.netWorth;
+    if (dDebt > 1) insights.push({ tone: "bad", text: `Total debt rose ${fmt(dDebt)} since last month — check what's driving it.` });
+    else if (dDebt < -1) insights.push({ tone: "good", text: `You paid down ${fmt(-dDebt)} of debt since last month. Keep it up.` });
+    if (dSav < -1) insights.push({ tone: "warn", text: `Savings & investments dipped ${fmt(-dSav)} this month.` });
+    else if (dSav > 1) insights.push({ tone: "good", text: `Savings & investments grew ${fmt(dSav)} this month.` });
+    if (dNW < -1) insights.push({ tone: "warn", text: `Net worth slipped ${fmt(-dNW)} month over month.` });
+  }
+  if (netFlow < 0) insights.push({ tone: "warn", text: `Rental income doesn't cover your monthly payments by ${fmt(-netFlow)} — the gap comes from employment income.` });
+  else if (netFlow > 0 && rentMonthly > 0) insights.push({ tone: "good", text: `Rental income covers your tracked payments with ${fmt(netFlow)} to spare each month.` });
+  const goalsTarget = (data.goals || []).reduce((s, g) => s + num(g.target), 0);
+  const goalsSaved = (data.goals || []).reduce((s, g) => s + num(g.saved), 0);
+
+  const spend = [
+    { name: "Mortgages", value: mortgagePay },
+    { name: "Car loans", value: carPay },
+    { name: "Debt payments", value: debtPay },
+  ];
+  const byCat = {};
+  (data.bills || []).forEach((b) => { byCat[b.category] = (byCat[b.category] || 0) + billMonthly(b); });
+  Object.entries(byCat).forEach(([k, v]) => spend.push({ name: k, value: v }));
+  const spendData = spend.filter((s) => s.value > 0);
+  const spendTotal = spendData.reduce((s, x) => s + x.value, 0);
+
+  const toneCls = { good: "bg-emerald-50 border-emerald-200 text-emerald-800", warn: "bg-amber-50 border-amber-200 text-amber-800", bad: "bg-rose-50 border-rose-200 text-rose-800" };
+
+  return (
+    <div className="space-y-5">
+      {/* Hero */}
+      <div className="bg-gradient-to-br from-teal-600 to-emerald-600 text-white rounded-3xl p-5 shadow-sm">
+        <div className="text-teal-50 text-sm">Net worth</div>
+        <div className="text-4xl font-bold tracking-tight mt-1">{fmt(tot.netWorth)}</div>
+        {delta != null && (
+          <div className={`inline-flex items-center gap-1 mt-2 text-sm px-2 py-0.5 rounded-full ${delta >= 0 ? "bg-white/20" : "bg-rose-900/30"}`}>
+            {delta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />} {delta >= 0 ? "+" : "−"}{fmt(Math.abs(delta))} this month
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
+          <div className="bg-white/10 rounded-xl p-2.5"><div className="text-teal-100 text-xs">Assets</div><div className="font-semibold">{fmt(tot.assets)}</div></div>
+          <div className="bg-white/10 rounded-xl p-2.5"><div className="text-teal-100 text-xs">Debt</div><div className="font-semibold">{fmt(tot.debt)}</div></div>
+        </div>
+      </div>
+
+      {/* Insights */}
+      {insights.length > 0 && (
+        <div className="space-y-2">
+          {insights.map((i, idx) => (
+            <div key={idx} className={`flex items-start gap-2 text-sm rounded-xl border px-3 py-2 ${toneCls[i.tone]}`}>
+              {i.tone === "good" ? <TrendingUp size={16} className="shrink-0 mt-0.5" /> : <AlertCircle size={16} className="shrink-0 mt-0.5" />}
+              <span>{i.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Mini stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Stat label="Property equity" value={fmt(tot.equity)} sub={`${data.properties.length} propert${data.properties.length === 1 ? "y" : "ies"}`} />
+        <Stat label="Investments" value={fmt(tot.investments)} sub="RRSP · TFSA · RESP" />
+        <Stat label="Total debt" value={fmt(tot.debt)} tone="red" sub="Mortgages, loans, cards" />
+        <Stat label="Net flow / mo" value={fmt(netFlow)} tone={netFlow >= 0 ? "green" : "red"} sub="Rent − payments" />
+      </div>
+
+      {/* Income & bracket tracker */}
+      <IncomeTracker data={data} setData={setData} />
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <ChartCard title="Net worth trend" hint={snaps.length < 2 ? "builds monthly" : ""}>
+          {snaps.length < 2 ? <Placeholder /> : (
+            <ResponsiveContainer width="100%" height={170}>
+              <AreaChart data={snaps} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                <defs><linearGradient id="nw" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0d9488" stopOpacity={0.4} /><stop offset="100%" stopColor="#0d9488" stopOpacity={0} /></linearGradient></defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0eee8" />
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#a8a29e" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#a8a29e" }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} width={36} />
+                <Tooltip formatter={(v) => fmt(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <Area type="monotone" dataKey="netWorth" stroke="#0d9488" strokeWidth={2} fill="url(#nw)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Debt paydown" hint={snaps.length < 2 ? "builds monthly" : ""}>
+          {snaps.length < 2 ? <Placeholder /> : (
+            <ResponsiveContainer width="100%" height={170}>
+              <LineChart data={snaps} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0eee8" />
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#a8a29e" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#a8a29e" }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} width={36} />
+                <Tooltip formatter={(v) => fmt(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <Line type="monotone" dataKey="debt" stroke="#e11d48" strokeWidth={2} dot={{ r: 2 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Savings & investments" hint={snaps.length < 2 ? "builds monthly" : ""}>
+          {snaps.length < 2 ? <Placeholder /> : (
+            <ResponsiveContainer width="100%" height={170}>
+              <AreaChart data={snaps} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                <defs><linearGradient id="sv" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0891b2" stopOpacity={0.4} /><stop offset="100%" stopColor="#0891b2" stopOpacity={0} /></linearGradient></defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0eee8" />
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#a8a29e" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#a8a29e" }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} width={36} />
+                <Tooltip formatter={(v) => fmt(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <Area type="monotone" dataKey="savings" stroke="#0891b2" strokeWidth={2} fill="url(#sv)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+          {goalsTarget > 0 && (
+            <div className="mt-2">
+              <div className="flex justify-between text-xs text-stone-500 mb-1"><span>Goals progress</span><span>{fmt(goalsSaved)} / {fmt(goalsTarget)}</span></div>
+              <div className="w-full bg-stone-100 rounded-full h-2 overflow-hidden"><div className="bg-teal-500 h-full" style={{ width: `${Math.min(100, (goalsSaved / goalsTarget) * 100)}%` }} /></div>
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Monthly spending" hint={spendTotal > 0 ? fmt(spendTotal) + "/mo" : ""}>
+          {spendData.length === 0 ? <Placeholder text="Add bills & payments to see this" /> : (
+            <div className="flex items-center gap-2">
+              <ResponsiveContainer width="55%" height={170}>
+                <PieChart>
+                  <Pie data={spendData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={70} paddingAngle={2}>
+                    {spendData.map((_, i) => <Cell key={i} fill={PIE[i % PIE.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => fmt(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 space-y-1 text-xs">
+                {spendData.map((s, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE[i % PIE.length] }} />
+                    <span className="text-stone-600 flex-1 truncate">{s.name}</span>
+                    <span className="text-stone-500">{fmt(s.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </ChartCard>
+      </div>
+
+      {/* Properties */}
+      <Card>
+        <h3 className="font-medium text-stone-700 mb-3 text-sm">Properties at a glance</h3>
+        {data.properties.length === 0 ? <p className="text-sm text-stone-400">No properties yet — add them in the Properties tab.</p> : (
+          <div className="space-y-2">
+            {data.properties.map((p) => {
+              const eq = propEquity(p);
+              const ltv = num(p.currentValue) ? (num(p.mortgage.balance) / num(p.currentValue)) * 100 : 0;
+              return (
+                <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-stone-100 last:border-0">
+                  <div><div className="font-medium text-sm">{p.name}</div><div className="text-xs text-stone-400">{p.address || "No address"}</div></div>
+                  <div className="flex gap-5 text-sm">
+                    <div><span className="text-xs text-stone-400 block">Value</span>{fmt(p.currentValue)}</div>
+                    <div><span className="text-xs text-stone-400 block">Equity</span><span className={eq >= 0 ? "text-emerald-600" : "text-rose-600"}>{fmt(eq)}</span></div>
+                    <div><span className="text-xs text-stone-400 block">LTV</span>{ltv.toFixed(0)}%</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <Card className="bg-amber-50 border-amber-200">
+        <div className="flex gap-2 text-sm text-amber-800"><AlertCircle size={18} className="shrink-0 mt-0.5" /><p>Trend charts fill in as the months pass. Values are entered manually — keep them current. This isn't financial or tax advice.</p></div>
+      </Card>
+    </div>
+  );
+}
+function Placeholder({ text = "Two months of data needed" }) {
+  return <div className="h-[170px] flex items-center justify-center text-xs text-stone-400 bg-stone-50 rounded-xl">{text}</div>;
+}
+
+/* ---------- Properties ---------- */
+function Properties({ properties, addProperty, updProperty, delProperty }) {
+  const [open, setOpen] = useState(null);
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-between items-center">
+        <h2 className="font-medium text-stone-700">Rental properties</h2>
+        <button onClick={addProperty} className="flex items-center gap-1 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Plus size={15} /> Add property</button>
+      </div>
+      {properties.length === 0 && <p className="text-sm text-stone-400">No properties yet. Add your first one above.</p>}
+      {properties.map((p) => <PropertyCard key={p.id} p={p} open={open === p.id} toggle={() => setOpen(open === p.id ? null : p.id)} upd={(patch) => updProperty(p.id, patch)} del={() => delProperty(p.id)} />)}
+    </div>
+  );
+}
+function PropertyCard({ p, open, toggle, upd, del }) {
+  const eq = propEquity(p);
+  const setMortgage = (patch) => upd({ mortgage: { ...p.mortgage, ...patch } });
+  const setExpense = (code, v) => upd({ expenses: { ...p.expenses, [code]: v } });
+  const amort = amortize(p.mortgage.balance, p.mortgage.rate, p.mortgage.payment);
+  const addTenant = () => upd({ tenants: [...(p.tenants || []), { id: uid(), name: "", unit: "", rent: 0, leaseEnd: "" }] });
+  const updTenant = (id, patch) => upd({ tenants: p.tenants.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
+  const delTenant = (id) => upd({ tenants: p.tenants.filter((t) => t.id !== id) });
+  const addRepair = () => upd({ repairs: [...(p.repairs || []), { id: uid(), date: "", description: "", amount: 0, kind: "current", scope: "rental" }] });
+  const updRepair = (id, patch) => upd({ repairs: p.repairs.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+  const delRepair = (id) => upd({ repairs: p.repairs.filter((r) => r.id !== id) });
+
+  return (
+    <Card className="!p-0 overflow-hidden">
+      <button onClick={toggle} className="w-full flex items-center justify-between p-4 hover:bg-stone-50">
+        <div className="flex items-center gap-2 text-left">
+          {open ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+          <div><div className="font-medium">{p.name}</div><div className="text-xs text-stone-400">{p.occupancy === "partial" ? `Mixed-use · ${p.personalUsePct}% personal` : "Fully rented"}</div></div>
+        </div>
+        <div className="text-right text-sm"><div className="text-xs text-stone-400">Equity</div><div className={eq >= 0 ? "text-emerald-600" : "text-rose-600"}>{fmt(eq)}</div></div>
+      </button>
+      {open && (
+        <div className="border-t border-stone-100 p-4 space-y-5">
+          <section className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <TextField label="Name / nickname" value={p.name} onChange={(v) => upd({ name: v })} className="col-span-2 sm:col-span-1" />
+            <TextField label="Address" value={p.address} onChange={(v) => upd({ address: v })} className="col-span-2" />
+            <NumberField label="Purchase price" value={p.purchasePrice} onChange={(v) => upd({ purchasePrice: v })} />
+            <TextField label="Purchase date" type="date" value={p.purchaseDate} onChange={(v) => upd({ purchaseDate: v })} />
+            <NumberField label="Your ownership %" prefix="" value={p.ownershipPct} onChange={(v) => upd({ ownershipPct: v })} />
+            <NumberField label="Current value (manual)" value={p.currentValue} onChange={(v) => upd({ currentValue: v })} />
+            <TextField label="Value last updated" type="date" value={p.valueUpdated} onChange={(v) => upd({ valueUpdated: v })} />
+            <label className="block"><span className="text-xs text-stone-500">Occupancy</span>
+              <select value={p.occupancy} onChange={(e) => upd({ occupancy: e.target.value, personalUsePct: e.target.value === "full" ? 0 : p.personalUsePct })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">
+                <option value="full">Fully rented out</option><option value="partial">I live in part of it</option>
+              </select>
+            </label>
+            {p.occupancy === "partial" && <NumberField label="Personal-use %" prefix="" value={p.personalUsePct} onChange={(v) => upd({ personalUsePct: v })} />}
+          </section>
+
+          <section>
+            <h4 className="text-sm font-medium text-stone-600 mb-2">Mortgage, equity & payoff</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <NumberField label="Balance owing" value={p.mortgage.balance} onChange={(v) => setMortgage({ balance: v })} />
+              <NumberField label="Interest rate %" prefix="" value={p.mortgage.rate} onChange={(v) => setMortgage({ rate: v })} />
+              <NumberField label="Monthly payment" value={p.mortgage.payment} onChange={(v) => setMortgage({ payment: v })} />
+              <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Equity / LTV</div><div className="font-medium text-sm">{fmt(eq)}</div><div className="text-stone-400">{num(p.currentValue) ? ((num(p.mortgage.balance) / num(p.currentValue)) * 100).toFixed(0) : 0}% LTV</div></div>
+            </div>
+            {amort && amort.neverPaysOff && <p className="text-xs text-rose-500 mt-2 flex items-center gap-1"><AlertCircle size={13} /> Payment too low to cover interest — the balance never clears.</p>}
+            {amort && !amort.neverPaysOff && (
+              <div className="mt-3 bg-stone-50 rounded-xl p-3">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-stone-600 mb-2"><TrendingDown size={14} /> Payoff projection</div>
+                <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                  <div><div className="text-sm font-semibold text-stone-700">{amort.years.toFixed(1)} yrs</div><div className="text-xs text-stone-400">to payoff</div></div>
+                  <div><div className="text-sm font-semibold text-stone-700">{fmtMonthYear(amort.payoffDate)}</div><div className="text-xs text-stone-400">payoff date</div></div>
+                  <div><div className="text-sm font-semibold text-rose-600">{fmt(amort.totalInterest)}</div><div className="text-xs text-stone-400">total interest</div></div>
+                </div>
+                <ResponsiveContainer width="100%" height={110}>
+                  <AreaChart data={amort.series} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                    <defs><linearGradient id={`g-${p.id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0d9488" stopOpacity={0.4} /><stop offset="100%" stopColor="#0d9488" stopOpacity={0} /></linearGradient></defs>
+                    <XAxis dataKey="year" tick={{ fontSize: 10, fill: "#a8a29e" }} tickFormatter={(y) => `${y}y`} />
+                    <YAxis tick={{ fontSize: 10, fill: "#a8a29e" }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} width={34} />
+                    <Tooltip formatter={(v) => fmt(v)} labelFormatter={(y) => `Year ${y}`} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Area type="monotone" dataKey="balance" stroke="#0d9488" strokeWidth={2} fill={`url(#g-${p.id})`} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <p className="text-xs text-stone-400 mt-1.5">Est. annual interest ≈ {fmt(propAnnualInterestEstimate(p))} — use your lender's figure for line 8710.</p>
+          </section>
+
+          <section>
+            <div className="flex justify-between items-center mb-2"><h4 className="text-sm font-medium text-stone-600">Tenants</h4><button onClick={addTenant} className="text-xs flex items-center gap-1 text-teal-700"><Plus size={13} /> Add tenant</button></div>
+            {(p.tenants || []).length === 0 && <p className="text-xs text-stone-400">No tenants added.</p>}
+            <div className="space-y-2">
+              {(p.tenants || []).map((t) => (
+                <div key={t.id} className="grid grid-cols-12 gap-2 items-end">
+                  <TextField label="Name" value={t.name} onChange={(v) => updTenant(t.id, { name: v })} className="col-span-4" />
+                  <TextField label="Unit" value={t.unit} onChange={(v) => updTenant(t.id, { unit: v })} className="col-span-2" />
+                  <NumberField label="Rent/mo" value={t.rent} onChange={(v) => updTenant(t.id, { rent: v })} className="col-span-3" />
+                  <TextField label="Lease end" type="date" value={t.leaseEnd} onChange={(v) => updTenant(t.id, { leaseEnd: v })} className="col-span-2" />
+                  <button onClick={() => delTenant(t.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+            {monthlyRent(p) > 0 && <p className="text-xs text-stone-500 mt-1.5">Gross rent: {fmt(monthlyRent(p))}/mo · {fmt(monthlyRent(p) * 12)}/yr</p>}
+          </section>
+
+          <section>
+            <h4 className="text-sm font-medium text-stone-600 mb-2">Annual operating expenses (T776 lines)</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{T776_LINES.map((line) => <NumberField key={line.code} label={`${line.code} · ${line.label}`} value={p.expenses[line.code] || 0} onChange={(v) => setExpense(line.code, v)} />)}</div>
+            <p className="text-xs text-stone-400 mt-1.5">Line 8960 fills automatically from the repairs log below.</p>
+          </section>
+
+          <section>
+            <div className="flex justify-between items-center mb-2"><h4 className="text-sm font-medium text-stone-600">Repairs & improvements log</h4><button onClick={addRepair} className="text-xs flex items-center gap-1 text-teal-700"><Plus size={13} /> Add entry</button></div>
+            {(p.repairs || []).length === 0 && <p className="text-xs text-stone-400">Current repairs → deductible now (8960). Capital improvements → tracked for CCA.</p>}
+            <div className="space-y-2">
+              {(p.repairs || []).map((r) => (
+                <div key={r.id} className="grid grid-cols-12 gap-2 items-end bg-stone-50 rounded-lg p-2">
+                  <TextField label="Date" type="date" value={r.date} onChange={(v) => updRepair(r.id, { date: v })} className="col-span-3" />
+                  <TextField label="Description" value={r.description} onChange={(v) => updRepair(r.id, { description: v })} className="col-span-4" />
+                  <NumberField label="Amount" value={r.amount} onChange={(v) => updRepair(r.id, { amount: v })} className="col-span-2" />
+                  <label className="col-span-2"><span className="text-xs text-stone-500">Type</span>
+                    <select value={r.kind} onChange={(e) => updRepair(r.id, { kind: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="current">Current</option><option value="capital">Capital</option></select>
+                  </label>
+                  <button onClick={() => delRepair(r.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+                  {p.occupancy === "partial" && (
+                    <label className="col-span-12 sm:col-span-4"><span className="text-xs text-stone-500">Scope</span>
+                      <select value={r.scope} onChange={(e) => updRepair(r.id, { scope: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="rental">Rental only (100%)</option><option value="shared">Whole building (prorate)</option></select>
+                    </label>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <div className="flex justify-end pt-2 border-t border-stone-100"><button onClick={del} className="text-sm flex items-center gap-1 text-rose-500 hover:text-rose-700"><Trash2 size={15} /> Delete property</button></div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ---------- Investments ---------- */
+function ContribList({ list, onAdd, onUpd, onDel, label }) {
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-1.5"><span className="text-xs font-medium text-stone-500">{label}</span><button onClick={onAdd} className="text-xs flex items-center gap-1 text-teal-700"><Plus size={12} /> Add</button></div>
+      <div className="space-y-1.5">
+        {(list || []).map((c) => (
+          <div key={c.id} className="grid grid-cols-12 gap-2 items-end">
+            <TextField label="Date" type="date" value={c.date} onChange={(v) => onUpd(c.id, { date: v })} className="col-span-6" />
+            <NumberField label="Amount" value={c.amount} onChange={(v) => onUpd(c.id, { amount: v })} className="col-span-5" />
+            <button onClick={() => onDel(c.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={14} /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+function Investments({ data, setData }) {
+  const year = data.taxYear;
+  const inv = data.investments || emptyInvestments();
+  const setInv = (key, patch) => setData((d) => ({ ...d, investments: { ...d.investments, [key]: { ...d.investments[key], ...patch } } }));
+  const contribOps = (key) => ({
+    onAdd: () => setInv(key, { contributions: [...(inv[key].contributions || []), { id: uid(), date: "", amount: 0 }] }),
+    onUpd: (id, patch) => setInv(key, { contributions: inv[key].contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) }),
+    onDel: (id) => setInv(key, { contributions: inv[key].contributions.filter((c) => c.id !== id) }),
+  });
+  const rrspThisYear = contribInYear(inv.rrsp.contributions, year);
+  const tfsaThisYear = contribInYear(inv.tfsa.contributions, year);
+  const tfsaRemaining = num(inv.tfsa.room) - tfsaThisYear;
+  const respThisYear = contribInYear(inv.resp.contributions, year);
+  const cesg = Math.min(respThisYear * 0.2, 500);
+  const fhsa = inv.fhsa || { room: 8000, value: 0, contributions: [] };
+  const fhsaThisYear = contribInYear(fhsa.contributions, year);
+  const fhsaRemaining = num(fhsa.room) - fhsaThisYear;
+  const addNonreg = () => setData((d) => ({ ...d, investments: { ...d.investments, nonreg: [...d.investments.nonreg, { id: uid(), name: "", value: 0, bookCost: 0 }] } }));
+  const updNonreg = (id, patch) => setData((d) => ({ ...d, investments: { ...d.investments, nonreg: d.investments.nonreg.map((n) => (n.id === id ? { ...n, ...patch } : n)) } }));
+  const delNonreg = (id) => setData((d) => ({ ...d, investments: { ...d.investments, nonreg: d.investments.nonreg.filter((n) => n.id !== id) } }));
+  const nonregValue = inv.nonreg.reduce((s, n) => s + num(n.value), 0);
+  const nonregGain = inv.nonreg.reduce((s, n) => s + (num(n.value) - num(n.bookCost)), 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Stat label="Total invested" value={fmt(investTotal(inv))} sub="All accounts" />
+        <Stat label="RRSP deduction" value={fmt(rrspThisYear)} sub={`${year} · line 20800`} tone="green" />
+        <Stat label="FHSA deduction" value={fmt(fhsaThisYear)} sub={`${year} · line 20805`} tone="green" />
+        <Stat label="TFSA room left" value={fmt(tfsaRemaining)} tone={tfsaRemaining < 0 ? "red" : "slate"} sub={tfsaRemaining < 0 ? "Over-contributed!" : "Available"} />
+      </div>
+      <Card>
+        <h3 className="font-medium text-stone-700 mb-3">RRSP — Retirement Savings</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <NumberField label="Deduction limit (from NOA)" value={inv.rrsp.room} onChange={(v) => setInv("rrsp", { room: v })} />
+          <NumberField label="Current value" value={inv.rrsp.value} onChange={(v) => setInv("rrsp", { value: v })} />
+          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(rrspThisYear)}</div></div>
+          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Room left</div><div className={`font-medium text-sm ${num(inv.rrsp.room) - rrspThisYear < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(num(inv.rrsp.room) - rrspThisYear)}</div></div>
+        </div>
+        <ContribList list={inv.rrsp.contributions} label="Contributions" {...contribOps("rrsp")} />
+        <p className="text-xs text-stone-400 mt-2">Reduces taxable income (line 20800). 2026 dollar-limit ceiling is $33,810; your limit is on your Notice of Assessment.</p>
+      </Card>
+      <Card>
+        <h3 className="font-medium text-stone-700 mb-3">TFSA — Tax-Free Savings</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <NumberField label="Contribution room" value={inv.tfsa.room} onChange={(v) => setInv("tfsa", { room: v })} />
+          <NumberField label="Current value" value={inv.tfsa.value} onChange={(v) => setInv("tfsa", { value: v })} />
+          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(tfsaThisYear)}</div></div>
+          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Room left</div><div className={`font-medium text-sm ${tfsaRemaining < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(tfsaRemaining)}</div></div>
+        </div>
+        <ContribList list={inv.tfsa.contributions} label="Contributions" {...contribOps("tfsa")} />
+        <p className="text-xs text-stone-400 mt-2">Tax-free growth. Annual limit $7,000 (2024–2026); over-contributions cost 1%/month.</p>
+      </Card>
+      <Card>
+        <h3 className="font-medium text-stone-700 mb-3">RESP — Education Savings</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <NumberField label="Current value" value={inv.resp.value} onChange={(v) => setInv("resp", { value: v })} />
+          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(respThisYear)}</div></div>
+          <div className="bg-emerald-50 rounded-lg p-2 text-xs"><div className="text-emerald-600">Est. CESG {year}</div><div className="font-medium text-sm text-emerald-700">{fmt(cesg)}</div></div>
+          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">To max grant</div><div className="font-medium text-sm">{fmt(Math.max(0, 2500 - respThisYear))}</div></div>
+        </div>
+        <ContribList list={inv.resp.contributions} label="Contributions" {...contribOps("resp")} />
+        <p className="text-xs text-stone-400 mt-2">Government adds 20% (up to $500/yr per child, $7,200 lifetime). Lifetime contribution cap $50,000 per child.</p>
+      </Card>
+      <Card>
+        <h3 className="font-medium text-stone-700 mb-3">FHSA — First Home Savings Account</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <NumberField label="Contribution room" value={fhsa.room} onChange={(v) => setInv("fhsa", { room: v })} />
+          <NumberField label="Current value" value={fhsa.value} onChange={(v) => setInv("fhsa", { value: v })} />
+          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(fhsaThisYear)}</div></div>
+          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Room left</div><div className={`font-medium text-sm ${fhsaRemaining < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(fhsaRemaining)}</div></div>
+        </div>
+        <ContribList list={fhsa.contributions} label="Contributions" {...contribOps("fhsa")} />
+        <p className="text-xs text-stone-400 mt-2">Best of both worlds for a first home: contributions are tax-deductible like an RRSP (line 20805) and withdrawals for a qualifying home are tax-free like a TFSA. $8,000/year, $40,000 lifetime. Carry forward up to $8,000 of unused room.</p>
+      </Card>
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Non-registered investments</h3><button onClick={addNonreg} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add holding</button></div>
+        {inv.nonreg.length === 0 && <p className="text-sm text-stone-400">Add taxable holdings. Book cost tracks unrealized gains.</p>}
+        <div className="space-y-2">
+          {inv.nonreg.map((n) => (
+            <div key={n.id} className="grid grid-cols-12 gap-2 items-end">
+              <TextField label="Holding" value={n.name} onChange={(v) => updNonreg(n.id, { name: v })} className="col-span-5" />
+              <NumberField label="Market value" value={n.value} onChange={(v) => updNonreg(n.id, { value: v })} className="col-span-3" />
+              <NumberField label="Book cost" value={n.bookCost} onChange={(v) => updNonreg(n.id, { bookCost: v })} className="col-span-3" />
+              <button onClick={() => delNonreg(n.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+        {inv.nonreg.length > 0 && <p className="text-sm text-stone-600 mt-3 pt-2 border-t border-stone-100">Value {fmt(nonregValue)} · Unrealized gain <span className={nonregGain >= 0 ? "text-emerald-600" : "text-rose-600"}>{fmt(nonregGain)}</span> <span className="text-xs text-stone-400">(50% of realized gains taxable)</span></p>}
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Debts & Bills ---------- */
+function DebtsBills({ data, setData }) {
+  const debts = data.debts || [];
+  const addDebt = () => setData((d) => ({ ...d, debts: [...(d.debts || []), { id: uid(), name: "", type: "Credit card", balance: 0, limit: 0, rate: 0, payment: 0 }] }));
+  const updDebt = (id, patch) => setData((d) => ({ ...d, debts: d.debts.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+  const delDebt = (id) => setData((d) => ({ ...d, debts: d.debts.filter((x) => x.id !== id) }));
+  const bills = data.bills || [];
+  const addBill = () => setData((d) => ({ ...d, bills: [...(d.bills || []), { id: uid(), name: "", amount: 0, category: "Phone/Internet", frequency: "monthly" }] }));
+  const updBill = (id, patch) => setData((d) => ({ ...d, bills: d.bills.map((b) => (b.id === id ? { ...b, ...patch } : b)) }));
+  const delBill = (id) => setData((d) => ({ ...d, bills: d.bills.filter((b) => b.id !== id) }));
+  const totalDebt = debts.reduce((s, x) => s + num(x.balance), 0);
+  const totalDebtPay = debts.reduce((s, x) => s + num(x.payment), 0);
+  const monthlyInterest = debts.reduce((s, x) => s + num(x.balance) * (num(x.rate) / 100 / 12), 0);
+  const billsMonthly = bills.reduce((s, b) => s + billMonthly(b), 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-3 gap-3">
+        <Stat label="Consumer debt" value={fmt(totalDebt)} tone="red" sub="LOC + cards" />
+        <Stat label="Monthly payments" value={fmt(totalDebtPay)} />
+        <Stat label="Interest / mo" value={fmt(monthlyInterest)} tone="red" />
+      </div>
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Lines of credit & credit cards</h3><button onClick={addDebt} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add debt</button></div>
+        {debts.length === 0 && <p className="text-sm text-stone-400">Add lines of credit, credit cards, or other consumer debt.</p>}
+        <div className="space-y-3">
+          {debts.map((x) => {
+            const util = num(x.limit) ? Math.min(100, (num(x.balance) / num(x.limit)) * 100) : 0;
+            return (
+              <div key={x.id} className="bg-stone-50 rounded-xl p-3">
+                <div className="grid grid-cols-12 gap-2 items-end">
+                  <TextField label="Name" value={x.name} onChange={(v) => updDebt(x.id, { name: v })} className="col-span-6 sm:col-span-3" />
+                  <label className="col-span-6 sm:col-span-2"><span className="text-xs text-stone-500">Type</span>
+                    <select value={x.type} onChange={(e) => updDebt(x.id, { type: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">{["Credit card", "Line of credit", "Personal loan", "Other"].map((t) => <option key={t}>{t}</option>)}</select>
+                  </label>
+                  <NumberField label="Balance" value={x.balance} onChange={(v) => updDebt(x.id, { balance: v })} className="col-span-4 sm:col-span-2" />
+                  <NumberField label="Limit" value={x.limit} onChange={(v) => updDebt(x.id, { limit: v })} className="col-span-4 sm:col-span-2" />
+                  <NumberField label="Rate %" prefix="" value={x.rate} onChange={(v) => updDebt(x.id, { rate: v })} className="col-span-3 sm:col-span-1" />
+                  <NumberField label="Pmt/mo" value={x.payment} onChange={(v) => updDebt(x.id, { payment: v })} className="col-span-3 sm:col-span-1" />
+                  <button onClick={() => delDebt(x.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+                </div>
+                {num(x.limit) > 0 && (
+                  <div className="mt-2"><div className="flex justify-between text-xs text-stone-400 mb-1"><span>Utilization</span><span className={util > 30 ? "text-amber-600" : ""}>{util.toFixed(0)}%</span></div>
+                    <div className="w-full bg-stone-200 rounded-full h-2 overflow-hidden"><div className={`h-full rounded-full ${util > 70 ? "bg-rose-500" : util > 30 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${util}%` }} /></div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Recurring bills</h3><button onClick={addBill} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add bill</button></div>
+        {bills.length === 0 && <p className="text-sm text-stone-400">Cell phone, internet, insurance, subscriptions. These flow into the dashboard.</p>}
+        <div className="space-y-2">
+          {bills.map((b) => (
+            <div key={b.id} className="grid grid-cols-12 gap-2 items-end">
+              <TextField label="Bill" value={b.name} onChange={(v) => updBill(b.id, { name: v })} className="col-span-4" />
+              <label className="col-span-3"><span className="text-xs text-stone-500">Category</span>
+                <select value={b.category} onChange={(e) => updBill(b.id, { category: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">{["Phone/Internet", "Utilities", "Insurance", "Subscriptions", "Groceries", "Transportation", "Other"].map((c) => <option key={c}>{c}</option>)}</select>
+              </label>
+              <NumberField label="Amount" value={b.amount} onChange={(v) => updBill(b.id, { amount: v })} className="col-span-2" />
+              <label className="col-span-2"><span className="text-xs text-stone-500">Freq.</span>
+                <select value={b.frequency} onChange={(e) => updBill(b.id, { frequency: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="monthly">Monthly</option><option value="annual">Annual</option></select>
+              </label>
+              <button onClick={() => delBill(b.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+        {billsMonthly > 0 && <p className="text-sm text-stone-600 mt-3 pt-2 border-t border-stone-100">Total recurring: <span className="font-medium">{fmt2(billsMonthly)}/mo</span> · {fmt(billsMonthly * 12)}/yr</p>}
+      </Card>
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">One-time expenses</h3><button onClick={() => setData((d) => ({ ...d, oneTime: [...(d.oneTime || []), { id: uid(), date: "", description: "", amount: 0, category: "Other" }] }))} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add expense</button></div>
+        {(data.oneTime || []).length === 0 && <p className="text-sm text-stone-400">One-off costs — appliances, a vacation, medical bills, a big repair.</p>}
+        <div className="space-y-2">
+          {(data.oneTime || []).map((o) => (
+            <div key={o.id} className="grid grid-cols-12 gap-2 items-end">
+              <TextField label="Date" type="date" value={o.date} onChange={(v) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, date: v } : x)) }))} className="col-span-3" />
+              <TextField label="Description" value={o.description} onChange={(v) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, description: v } : x)) }))} className="col-span-4" />
+              <label className="col-span-2"><span className="text-xs text-stone-500">Category</span>
+                <select value={o.category} onChange={(e) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, category: e.target.value } : x)) }))} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">{["Home", "Medical", "Travel", "Auto", "Gifts", "Other"].map((c) => <option key={c}>{c}</option>)}</select>
+              </label>
+              <NumberField label="Amount" value={o.amount} onChange={(v) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, amount: v } : x)) }))} className="col-span-2" />
+              <button onClick={() => setData((d) => ({ ...d, oneTime: d.oneTime.filter((x) => x.id !== o.id) }))} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+        {((data.oneTime || []).length > 0 || (data.receipts || []).some((r) => r.applyTo === "onetime")) && (() => {
+          const recYr = (data.receipts || []).filter((r) => r.applyTo === "onetime" && (r.date || "").slice(0, 4) === String(data.taxYear)).reduce((s, r) => s + num(r.amount), 0);
+          const recAll = (data.receipts || []).filter((r) => r.applyTo === "onetime").reduce((s, r) => s + num(r.amount), 0);
+          const yr = (data.oneTime || []).filter((o) => (o.date || "").slice(0, 4) === String(data.taxYear)).reduce((s, o) => s + num(o.amount), 0) + recYr;
+          const all = (data.oneTime || []).reduce((s, o) => s + num(o.amount), 0) + recAll;
+          return <p className="text-sm text-stone-600 mt-3 pt-2 border-t border-stone-100">This year ({data.taxYear}): <span className="font-medium">{fmt(yr)}</span> · All-time: {fmt(all)} {recAll > 0 && <span className="text-xs text-stone-400">(incl. {fmt(recAll)} from receipts)</span>}</p>;
+        })()}
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Receipts ---------- */
+function Receipts({ data, setData, shared }) {
+  const cats = data.receiptCategories || [];
+  const receipts = data.receipts || [];
+  const [images, setImages] = useState({});
+  const [busy, setBusy] = useState(null);
+  const [filter, setFilter] = useState("All");
+  const [newCat, setNewCat] = useState("");
+  const [showCats, setShowCats] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const cutoff = Date.now() - RECEIPT_EXPIRY_DAYS * 86400000;
+      for (const r of receipts) {
+        if (!r.hasImage) continue;
+        if (r.photoAddedAt && r.photoAddedAt < cutoff) {
+          try { await window.storage.delete(`receipt-img:${r.id}`, shared); } catch (e) {}
+          updR(r.id, { hasImage: false, photoExpired: true });
+          continue;
+        }
+        if (!images[r.id]) {
+          try { const res = await window.storage.get(`receipt-img:${r.id}`, shared); if (res && res.value) setImages((m) => ({ ...m, [r.id]: res.value })); } catch (e) {}
+        }
+      }
+    })();
+    // eslint-disable-next-line
+  }, []);
+
+  const updR = (id, patch) => setData((d) => ({ ...d, receipts: d.receipts.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+  const addBlank = () => setData((d) => ({ ...d, receipts: [{ id: uid(), label: "", description: "", date: "", time: "", amount: 0, category: cats[0] || "Other", applyTo: "log", hasImage: false }, ...(d.receipts || [])] }));
+  const delR = async (id) => {
+    setData((d) => ({ ...d, receipts: d.receipts.filter((x) => x.id !== id) }));
+    setImages((m) => { const n = { ...m }; delete n[id]; return n; });
+    try { await window.storage.delete(`receipt-img:${id}`, shared); } catch (e) {}
+  };
+  const compress = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1100; let { width, height } = img;
+        if (width > max || height > max) { const s = max / Math.max(width, height); width = Math.round(width * s); height = Math.round(height * s); }
+        const c = document.createElement("canvas"); c.width = width; c.height = height;
+        c.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(c.toDataURL("image/jpeg", 0.6));
+      };
+      img.onerror = reject; img.src = reader.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+  const extract = async (id, dataUrl) => {
+    setBusy(id);
+    try {
+      const base64 = dataUrl.split(",")[1];
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
+          { type: "text", text: `Extract details from this receipt. Respond with ONLY a JSON object, no markdown: {"merchant": string, "date": "YYYY-MM-DD" or "", "time": "HH:MM" or "", "amount": number for the grand total, "category": one of ${JSON.stringify(cats)}}. Closest category. Unreadable → "" or 0.` },
+        ] }] }),
+      });
+      const j = await res.json();
+      const text = (j.content || []).filter((i) => i.type === "text").map((i) => i.text).join("").replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(text);
+      updR(id, { label: parsed.merchant || "", date: parsed.date || "", time: parsed.time || "", amount: num(parsed.amount), category: cats.includes(parsed.category) ? parsed.category : (cats[0] || "Other") });
+    } catch (e) {}
+    setBusy(null);
+  };
+  const onFile = async (id, file) => {
+    if (!file) return;
+    try {
+      const dataUrl = await compress(file);
+      setImages((m) => ({ ...m, [id]: dataUrl }));
+      updR(id, { hasImage: true, photoAddedAt: Date.now(), photoExpired: false });
+      await window.storage.set(`receipt-img:${id}`, dataUrl, shared);
+      extract(id, dataUrl);
+    } catch (e) {}
+  };
+  const addCat = () => { const c = newCat.trim(); if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); setNewCat(""); };
+  const delCat = (c) => setData((d) => ({ ...d, receiptCategories: d.receiptCategories.filter((x) => x !== c) }));
+  const shown = filter === "All" ? receipts : receipts.filter((r) => r.category === filter);
+  const shownTotal = shown.reduce((s, r) => s + num(r.amount), 0);
+  const yearTotal = receipts.filter((r) => (r.date || "").slice(0, 4) === String(data.taxYear)).reduce((s, r) => s + num(r.amount), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <h2 className="font-medium text-stone-700">Receipts</h2>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowCats(!showCats)} className="text-sm text-stone-500 hover:text-stone-700">Categories</button>
+          <button onClick={addBlank} className="flex items-center gap-1 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Plus size={15} /> Add receipt</button>
+        </div>
+      </div>
+      {showCats && (
+        <Card>
+          <h3 className="text-sm font-medium text-stone-600 mb-2">Customize categories</h3>
+          <div className="flex flex-wrap gap-2 mb-3">{cats.map((c) => <span key={c} className="flex items-center gap-1 bg-stone-100 text-stone-600 text-xs px-2 py-1 rounded-full">{c}<button onClick={() => delCat(c)} className="text-stone-400 hover:text-rose-500">×</button></span>)}</div>
+          <div className="flex gap-2"><input value={newCat} onChange={(e) => setNewCat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCat()} placeholder="New category" className="flex-1 px-2 py-1.5 text-sm border border-stone-300 rounded-lg" /><button onClick={addCat} className="text-sm bg-stone-700 text-white px-3 rounded-lg">Add</button></div>
+        </Card>
+      )}
+      <Card className="bg-teal-50 border-teal-200">
+        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap or upload a receipt and Claude reads the merchant, date, time, and total. Fix anything off — or type it in. Set "Apply to" so it counts toward a rental or your one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
+      </Card>
+      {receipts.length > 1 && (
+        <div className="flex items-center gap-2"><span className="text-xs text-stone-500">Filter</span>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white"><option>All</option>{cats.map((c) => <option key={c}>{c}</option>)}</select>
+        </div>
+      )}
+      {receipts.length === 0 && <p className="text-sm text-stone-400">No receipts yet. Tap "Add receipt," then the photo box to capture one.</p>}
+      <div className="space-y-3">
+        {shown.map((r) => (
+          <Card key={r.id} className="!p-3">
+            <div className="flex gap-3">
+              <div className="w-24 shrink-0">
+                {images[r.id] ? <img src={images[r.id]} alt="receipt" className="w-24 h-24 object-cover rounded-lg border border-stone-200" /> : (
+                  <label className="w-24 h-24 flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-lg cursor-pointer text-stone-400 hover:border-teal-400 hover:text-teal-500"><Camera size={20} /><span className="text-[10px] mt-1">Add photo</span><input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>
+                )}
+                {busy === r.id ? <div className="text-[10px] text-teal-600 mt-1 flex items-center justify-center gap-1"><Sparkles size={11} className="animate-pulse" /> Reading…</div> : images[r.id] && <label className="text-[10px] text-teal-700 cursor-pointer block mt-1 text-center hover:underline">Replace<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>}
+              </div>
+              <div className="flex-1 grid grid-cols-2 gap-2">
+                <TextField label="Label / merchant" value={r.label} onChange={(v) => updR(r.id, { label: v })} />
+                <NumberField label="Amount" value={r.amount} onChange={(v) => updR(r.id, { amount: v })} />
+                <TextField label="Date" type="date" value={r.date} onChange={(v) => updR(r.id, { date: v })} />
+                <TextField label="Time" type="time" value={r.time} onChange={(v) => updR(r.id, { time: v })} />
+                <label className="block"><span className="text-xs text-stone-500">Category</span><select value={r.category} onChange={(e) => updR(r.id, { category: e.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">{cats.map((c) => <option key={c}>{c}</option>)}</select></label>
+                <label className="block"><span className="text-xs text-stone-500">Apply to</span><select value={r.applyTo || "log"} onChange={(e) => updR(r.id, { applyTo: e.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white"><option value="log">Log only</option><option value="onetime">One-time expense</option>{data.properties.map((p) => <option key={p.id} value={`rental:${p.id}`}>Rental: {p.name}</option>)}</select></label>
+                <TextField label="Description" value={r.description} onChange={(v) => updR(r.id, { description: v })} className="col-span-2" />
+                {(r.applyTo || "").startsWith("rental:") && <p className="col-span-2 text-xs text-teal-700">→ Counts toward T776 line {receiptLine(r.category)} on that property.</p>}
+                {r.applyTo === "onetime" && <p className="col-span-2 text-xs text-teal-700">→ Added to your one-time expenses total.</p>}
+                {r.photoExpired && <p className="col-span-2 text-xs text-stone-400">Photo auto-removed after {RECEIPT_EXPIRY_DAYS} days to save space — details kept.</p>}
+              </div>
+              <button onClick={() => delR(r.id)} className="text-rose-400 hover:text-rose-600 self-start"><Trash2 size={16} /></button>
+            </div>
+          </Card>
+        ))}
+      </div>
+      {receipts.length > 0 && (
+        <Card className="bg-stone-800 text-white">
+          <div className="flex justify-between items-center">
+            <div><div className="text-xs text-stone-300">{filter === "All" ? "Total of all receipts" : `Total · ${filter}`}</div><div className="text-2xl font-semibold">{fmt2(shownTotal)}</div></div>
+            <div className="text-right text-sm text-stone-300"><div>{shown.length} receipt{shown.length === 1 ? "" : "s"}</div><div>{data.taxYear}: {fmt(yearTotal)}</div></div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Childcare ---------- */
+function Childcare({ data, setData }) {
+  const year = data.taxYear;
+  const addChild = () => setData((d) => ({ ...d, children: [...d.children, { id: uid(), name: "", birthYear: "", disability: false }] }));
+  const updChild = (id, patch) => setData((d) => ({ ...d, children: d.children.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+  const delChild = (id) => setData((d) => ({ ...d, children: d.children.filter((c) => c.id !== id) }));
+  const addExp = () => setData((d) => ({ ...d, childcare: [...d.childcare, { id: uid(), childId: "", date: "", provider: "", providerSIN: "", amount: 0 }] }));
+  const updExp = (id, patch) => setData((d) => ({ ...d, childcare: d.childcare.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
+  const delExp = (id) => setData((d) => ({ ...d, childcare: d.childcare.filter((e) => e.id !== id) }));
+  const cc = computeChildcare(data, year);
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Children</h3><button onClick={addChild} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add child</button></div>
+        {data.children.length === 0 && <p className="text-sm text-stone-400">Add your daughter (and any other children) to set the right deduction limits.</p>}
+        <div className="space-y-2">
+          {data.children.map((c) => (
+            <div key={c.id} className="grid grid-cols-12 gap-2 items-end">
+              <TextField label="Name" value={c.name} onChange={(v) => updChild(c.id, { name: v })} className="col-span-5" />
+              <NumberField label="Birth year" prefix="" value={c.birthYear} onChange={(v) => updChild(c.id, { birthYear: v })} className="col-span-3" />
+              <label className="col-span-3 flex items-center gap-2 pb-2 text-xs text-stone-600"><input type="checkbox" checked={c.disability} onChange={(e) => updChild(c.id, { disability: e.target.checked })} /> Disability</label>
+              <button onClick={() => delChild(c.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+              <div className="col-span-12 text-xs text-stone-400">Annual limit: {fmt(cc.childLimit(c))}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Childcare payments ({year})</h3><button onClick={addExp} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add payment</button></div>
+        <div className="space-y-2">
+          {data.childcare.map((e) => (
+            <div key={e.id} className="grid grid-cols-12 gap-2 items-end bg-stone-50 rounded-lg p-2">
+              <label className="col-span-3"><span className="text-xs text-stone-500">Child</span><select value={e.childId} onChange={(ev) => updExp(e.id, { childId: ev.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="">—</option>{data.children.map((c) => <option key={c.id} value={c.id}>{c.name || "Child"}</option>)}</select></label>
+              <TextField label="Date" type="date" value={e.date} onChange={(v) => updExp(e.id, { date: v })} className="col-span-2" />
+              <TextField label="Provider" value={e.provider} onChange={(v) => updExp(e.id, { provider: v })} className="col-span-3" />
+              <TextField label="Provider SIN/BN" value={e.providerSIN} onChange={(v) => updExp(e.id, { providerSIN: v })} className="col-span-2" />
+              <NumberField label="Amount" value={e.amount} onChange={(v) => updExp(e.id, { amount: v })} className="col-span-1" />
+              <button onClick={() => delExp(e.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-stone-400 mt-2">Keep every receipt — the CRA requires the provider's name and SIN (for individuals) if they ask.</p>
+      </Card>
+      <Card className="bg-emerald-50 border-emerald-200">
+        <h3 className="font-medium text-emerald-800 mb-2">Estimated deduction (line 21400)</h3>
+        <div className="text-sm text-emerald-900 space-y-1">
+          <div className="flex justify-between"><span>Total paid in {year}</span><span>{fmt(cc.totalPaid)}</span></div>
+          <div className="flex justify-between"><span>Age-based ceiling</span><span>{fmt(cc.limitByAge)}</span></div>
+          <div className="flex justify-between"><span>⅔ of lower income ({cc.lowerName})</span><span>{fmt(cc.incomeLimit)}</span></div>
+          <div className="flex justify-between font-semibold text-base pt-1 border-t border-emerald-200 mt-1"><span>Claimable (lesser of three)</span><span>{fmt(cc.deduction)}</span></div>
+        </div>
+        <p className="text-xs text-emerald-700 mt-2">Generally the lower-income spouse ({cc.lowerName}) claims this. Verify on Form T778.</p>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Vehicles ---------- */
+function Vehicles({ data, setData }) {
+  const add = () => setData((d) => ({ ...d, vehicles: [...d.vehicles, { id: uid(), name: "", loanBalance: 0, rate: 0, payment: 0 }] }));
+  const upd = (id, patch) => setData((d) => ({ ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, ...patch } : v)) }));
+  const del = (id) => setData((d) => ({ ...d, vehicles: d.vehicles.filter((v) => v.id !== id) }));
+  const totalBal = data.vehicles.reduce((s, v) => s + num(v.loanBalance), 0);
+  const totalPay = data.vehicles.reduce((s, v) => s + num(v.payment), 0);
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3"><Stat label="Total car loans" value={fmt(totalBal)} tone="red" /><Stat label="Monthly payments" value={fmt(totalPay)} /></div>
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Vehicles & loans</h3><button onClick={add} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add vehicle</button></div>
+        {data.vehicles.length === 0 && <p className="text-sm text-stone-400">Add your two cars and their loans.</p>}
+        <div className="space-y-3">
+          {data.vehicles.map((v) => {
+            const am = amortize(v.loanBalance, v.rate, v.payment);
+            return (
+              <div key={v.id}>
+                <div className="grid grid-cols-12 gap-2 items-end">
+                  <TextField label="Vehicle" value={v.name} onChange={(val) => upd(v.id, { name: val })} className="col-span-4" />
+                  <NumberField label="Loan balance" value={v.loanBalance} onChange={(val) => upd(v.id, { loanBalance: val })} className="col-span-3" />
+                  <NumberField label="Rate %" prefix="" value={v.rate} onChange={(val) => upd(v.id, { rate: val })} className="col-span-2" />
+                  <NumberField label="Payment/mo" value={v.payment} onChange={(val) => upd(v.id, { payment: val })} className="col-span-2" />
+                  <button onClick={() => del(v.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+                </div>
+                {am && !am.neverPaysOff && <p className="text-xs text-stone-400 mt-1">Paid off in {am.years.toFixed(1)} yrs ({fmtMonthYear(am.payoffDate)}) · {fmt(am.totalInterest)} interest</p>}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Budget (envelopes) ---------- */
+function Budget({ data, setData }) {
+  const month = currentMonth();
+  const monthLabel = new Date(month + "-01").toLocaleDateString("en-CA", { month: "long", year: "numeric" });
+  const b = data.budget || { monthlyIncome: 0, envelopes: [] };
+  const envs = b.envelopes || [];
+  const cats = data.receiptCategories || [];
+  const setB = (patch) => setData((d) => ({ ...d, budget: { ...(d.budget || { monthlyIncome: 0, envelopes: [] }), ...patch } }));
+  const updEnv = (id, patch) => setB({ envelopes: envs.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
+  const addEnv = () => setB({ envelopes: [...envs, { id: uid(), name: "New folder", category: "", budgeted: 0, color: PIE[envs.length % PIE.length], rollover: false, spends: [] }] });
+  const delEnv = (id) => setB({ envelopes: envs.filter((e) => e.id !== id) });
+
+  const receiptsThisMonth = (data.receipts || []).filter((r) => (r.date || "").slice(0, 7) === month);
+  const spentFor = (e) => {
+    const manual = (e.spends || []).filter((s) => (s.date || "").slice(0, 7) === month).reduce((a, s) => a + num(s.amount), 0);
+    const fromReceipts = e.category ? receiptsThisMonth.filter((r) => r.category === e.category).reduce((a, r) => a + num(r.amount), 0) : 0;
+    return manual + fromReceipts;
+  };
+  const logSpend = (id) => { const e = envs.find((x) => x.id === id); updEnv(id, { spends: [...(e.spends || []), { id: uid(), date: new Date().toISOString().slice(0, 10), amount: 0, note: "" }] }); };
+  const updSpend = (eid, sid, patch) => { const e = envs.find((x) => x.id === eid); updEnv(eid, { spends: e.spends.map((s) => (s.id === sid ? { ...s, ...patch } : s)) }); };
+  const delSpend = (eid, sid) => { const e = envs.find((x) => x.id === eid); updEnv(eid, { spends: e.spends.filter((s) => s.id !== sid) }); };
+
+  const totalBudgeted = envs.reduce((s, e) => s + num(e.budgeted), 0);
+  const totalSpent = envs.reduce((s, e) => s + spentFor(e), 0);
+  const toAllocate = num(b.monthlyIncome) - totalBudgeted;
+
+  return (
+    <div className="space-y-5">
+      {/* Allocation hero */}
+      <div className="bg-gradient-to-br from-teal-600 to-emerald-600 text-white rounded-3xl p-5 shadow-sm">
+        <div className="flex justify-between items-start">
+          <div>
+            <div className="text-teal-50 text-sm">Left to budget · {monthLabel}</div>
+            <div className="text-3xl font-bold mt-1">{fmt(toAllocate)}</div>
+          </div>
+          <label className="text-right">
+            <span className="text-teal-100 text-xs">Monthly take-home</span>
+            <div className="flex items-center mt-0.5 bg-white/15 rounded-lg px-2">
+              <span className="text-teal-100 text-sm">$</span>
+              <input type="number" value={b.monthlyIncome === 0 ? "" : b.monthlyIncome} placeholder="0" onChange={(e) => setB({ monthlyIncome: num(e.target.value) })} className="w-28 px-1 py-1.5 bg-transparent outline-none text-white placeholder-teal-200 text-right" />
+            </div>
+          </label>
+        </div>
+        <div className="mt-3 text-xs text-teal-50">
+          {toAllocate > 0 ? `Give every dollar a job — ${fmt(toAllocate)} still unassigned.` : toAllocate < 0 ? `You've assigned ${fmt(-toAllocate)} more than you earn — trim a folder.` : "Every dollar is assigned. Nicely balanced."}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Stat label="Budgeted" value={fmt(totalBudgeted)} />
+        <Stat label="Spent so far" value={fmt(totalSpent)} tone={totalSpent > totalBudgeted ? "red" : "slate"} />
+        <Stat label="Remaining" value={fmt(totalBudgeted - totalSpent)} tone={totalBudgeted - totalSpent < 0 ? "red" : "green"} />
+      </div>
+
+      <div className="flex justify-between items-center">
+        <h2 className="font-medium text-stone-700">Folders</h2>
+        <button onClick={addEnv} className="flex items-center gap-1 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Plus size={15} /> Add folder</button>
+      </div>
+
+      {envs.length === 0 && <p className="text-sm text-stone-400">Create folders like Groceries, Dining, Kids, Fun. Assign each a monthly amount, then watch it draw down as you spend.</p>}
+
+      <div className="space-y-3">
+        {envs.map((e) => {
+          const spent = spentFor(e);
+          const budgeted = num(e.budgeted);
+          const remaining = budgeted - spent;
+          const pct = budgeted ? Math.min(100, (spent / budgeted) * 100) : 0;
+          const over = spent > budgeted && budgeted > 0;
+          const bar = over ? "bg-rose-500" : pct > 80 ? "bg-amber-500" : "bg-teal-500";
+          return (
+            <Card key={e.id} className="!p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ background: e.color }} />
+                <input value={e.name} onChange={(ev) => updEnv(e.id, { name: ev.target.value })} className="font-medium text-sm bg-transparent outline-none border-b border-transparent focus:border-stone-300 flex-1 min-w-0" />
+                <button onClick={() => delEnv(e.id)} className="text-rose-300 hover:text-rose-500"><Trash2 size={14} /></button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end mb-2">
+                <NumberField label="Monthly budget" value={e.budgeted} onChange={(v) => updEnv(e.id, { budgeted: v })} />
+                <label className="block"><span className="text-xs text-stone-500">Linked receipt category</span>
+                  <select value={e.category || ""} onChange={(ev) => updEnv(e.id, { category: ev.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">
+                    <option value="">— none —</option>
+                    {cats.map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </label>
+                <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Spent</div><div className="font-medium text-sm">{fmt(spent)}</div></div>
+                <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Remaining</div><div className={`font-medium text-sm ${remaining < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(remaining)}</div></div>
+              </div>
+              <div className="w-full bg-stone-100 rounded-full h-2.5 overflow-hidden"><div className={`h-full rounded-full transition-all ${bar}`} style={{ width: `${pct}%` }} /></div>
+              <div className="flex justify-between items-center mt-1.5">
+                <span className="text-xs text-stone-400">{e.category ? `Auto-counts ${e.category} receipts this month` : "Log spending below or link a category"}{over ? " · over budget" : ""}</span>
+                <button onClick={() => logSpend(e.id)} className="text-xs flex items-center gap-1 text-teal-700"><Plus size={12} /> Log spend</button>
+              </div>
+              {(e.spends || []).filter((s) => (s.date || "").slice(0, 7) === month).length > 0 && (
+                <div className="mt-2 space-y-1.5 border-t border-stone-100 pt-2">
+                  {(e.spends || []).filter((s) => (s.date || "").slice(0, 7) === month).map((s) => (
+                    <div key={s.id} className="grid grid-cols-12 gap-2 items-end">
+                      <TextField label="Date" type="date" value={s.date} onChange={(v) => updSpend(e.id, s.id, { date: v })} className="col-span-3" />
+                      <NumberField label="Amount" value={s.amount} onChange={(v) => updSpend(e.id, s.id, { amount: v })} className="col-span-3" />
+                      <TextField label="Note" value={s.note} onChange={(v) => updSpend(e.id, s.id, { note: v })} className="col-span-5" />
+                      <button onClick={() => delSpend(e.id, s.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
+      <Card className="bg-teal-50 border-teal-200">
+        <div className="flex gap-2 text-sm text-teal-800"><Folder size={18} className="shrink-0 mt-0.5" /><p>Folder budgeting: assign your take-home pay across folders until every dollar has a job. Link a folder to a receipt category and your logged receipts count against it automatically each month. Spending resets at the start of each calendar month.</p></div>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Goals ---------- */
+function Goals({ data, setData }) {
+  const goals = data.goals || [];
+  const add = () => setData((d) => ({ ...d, goals: [...(d.goals || []), { id: uid(), name: "", target: 0, saved: 0, targetDate: "" }] }));
+  const upd = (id, patch) => setData((d) => ({ ...d, goals: d.goals.map((g) => (g.id === id ? { ...g, ...patch } : g)) }));
+  const del = (id) => setData((d) => ({ ...d, goals: d.goals.filter((g) => g.id !== id) }));
+  const monthsUntil = (s) => { if (!s) return null; const t = new Date(s), n = new Date(); const m = (t.getFullYear() - n.getFullYear()) * 12 + (t.getMonth() - n.getMonth()); return m > 0 ? m : null; };
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center"><h2 className="font-medium text-stone-700">Savings goals</h2><button onClick={add} className="flex items-center gap-1 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Plus size={15} /> Add goal</button></div>
+      {goals.length === 0 && <p className="text-sm text-stone-400">Try an emergency fund, daycare buffer, or a property down payment.</p>}
+      {goals.map((g) => {
+        const pct = num(g.target) ? Math.min(100, (num(g.saved) / num(g.target)) * 100) : 0;
+        const remaining = Math.max(0, num(g.target) - num(g.saved));
+        const months = monthsUntil(g.targetDate);
+        const perMonth = months ? remaining / months : null;
+        return (
+          <Card key={g.id}>
+            <div className="grid grid-cols-12 gap-2 items-end mb-3">
+              <TextField label="Goal" value={g.name} onChange={(v) => upd(g.id, { name: v })} className="col-span-5" />
+              <NumberField label="Target" value={g.target} onChange={(v) => upd(g.id, { target: v })} className="col-span-3" />
+              <NumberField label="Saved so far" value={g.saved} onChange={(v) => upd(g.id, { saved: v })} className="col-span-3" />
+              <button onClick={() => del(g.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+              <TextField label="Target date (optional)" type="date" value={g.targetDate} onChange={(v) => upd(g.id, { targetDate: v })} className="col-span-6" />
+            </div>
+            <div className="w-full bg-stone-100 rounded-full h-3 overflow-hidden"><div className="bg-teal-500 h-full rounded-full transition-all" style={{ width: `${pct}%` }} /></div>
+            <div className="flex flex-wrap justify-between gap-2 text-xs text-stone-500 mt-2">
+              <span>{fmt(g.saved)} of {fmt(g.target)} · {pct.toFixed(0)}%</span>
+              {remaining > 0 && <span>{fmt(remaining)} to go</span>}
+              {perMonth != null && remaining > 0 && <span className="text-teal-700 font-medium">Save {fmt(perMonth)}/mo for {months}-mo target</span>}
+              {remaining === 0 && num(g.target) > 0 && <span className="text-emerald-600 font-medium">Goal reached 🎉</span>}
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------- Household ---------- */
+function Household({ data, setHH, setData }) {
+  const deps = data.dependents || [];
+  const addDep = () => setData((d) => ({ ...d, dependents: [...(d.dependents || []), { id: uid(), name: "", relationship: "Child", birthYear: "", infirm: false }] }));
+  const updDep = (id, patch) => setData((d) => ({ ...d, dependents: d.dependents.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+  const delDep = (id) => setData((d) => ({ ...d, dependents: d.dependents.filter((x) => x.id !== id) }));
+
+  const [importMsg, setImportMsg] = useState("");
+  const exportBackup = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `family-finance-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importBackup = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed || typeof parsed !== "object" || !parsed.household) throw new Error("bad file");
+        setData(applyDefaults(parsed));
+        setImportMsg("Backup restored.");
+      } catch (e) { setImportMsg("Couldn't read that file — make sure it's a backup exported here."); }
+      setTimeout(() => setImportMsg(""), 4000);
+    };
+    reader.readAsText(file);
+  };
+  return (
+    <div className="space-y-5">
+      <Card>
+        <h3 className="font-medium text-stone-700 mb-3">Household & incomes</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <TextField label="Person 1 name" value={data.household.p1Name} onChange={(v) => setHH({ p1Name: v })} />
+          <NumberField label="Person 1 net income (line 23600)" value={data.household.p1Income} onChange={(v) => setHH({ p1Income: v })} />
+          <TextField label="Person 2 name" value={data.household.p2Name} onChange={(v) => setHH({ p2Name: v })} />
+          <NumberField label="Person 2 net income (line 23600)" value={data.household.p2Income} onChange={(v) => setHH({ p2Income: v })} />
+          <label className="block col-span-2"><span className="text-xs text-stone-500">Province of residence (Dec 31) — sets your tax rates</span>
+            <select value={data.household.province || "BC"} onChange={(e) => setHH({ province: e.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">
+              <option value="BC">British Columbia</option>
+              <option value="AB">Alberta</option>
+              <option value="ON">Ontario</option>
+            </select>
+          </label>
+        </div>
+        <p className="text-xs text-stone-400 mt-2">Net incomes drive the childcare two-thirds limit and who claims it. Province sets the tax brackets used in the estimate (BC, Alberta, Ontario supported; Quebec files separately).</p>
+      </Card>
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Dependents</h3><button onClick={addDep} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add dependent</button></div>
+        {deps.length === 0 && <p className="text-sm text-stone-400">List children, an aging parent, or an infirm relative. Helps flag credits like the Canada Caregiver Amount.</p>}
+        <div className="space-y-2">
+          {deps.map((x) => {
+            const age = x.birthYear ? new Date().getFullYear() - num(x.birthYear) : null;
+            return (
+              <div key={x.id} className="grid grid-cols-12 gap-2 items-end">
+                <TextField label="Name" value={x.name} onChange={(v) => updDep(x.id, { name: v })} className="col-span-4" />
+                <label className="col-span-3"><span className="text-xs text-stone-500">Relationship</span><select value={x.relationship} onChange={(e) => updDep(x.id, { relationship: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">{["Child", "Spouse/Partner", "Parent", "Grandparent", "Other relative"].map((r) => <option key={r}>{r}</option>)}</select></label>
+                <NumberField label="Birth year" prefix="" value={x.birthYear} onChange={(v) => updDep(x.id, { birthYear: v })} className="col-span-2" />
+                <label className="col-span-2 flex items-center gap-1.5 pb-2 text-xs text-stone-600"><input type="checkbox" checked={x.infirm} onChange={(e) => updDep(x.id, { infirm: e.target.checked })} /> Infirm</label>
+                <button onClick={() => delDep(x.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+                {(age != null || x.infirm) && <div className="col-span-12 text-xs text-stone-400">{age != null && `Age ~${age}. `}{x.infirm && "May qualify for the Canada Caregiver Amount — confirm with CRA."}</div>}
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-xs text-stone-400 mt-2">For childcare claims, add children in the Childcare tab — that's where deduction limits are calculated.</p>
+      </Card>
+      <Card>
+        <h3 className="font-medium text-stone-700 mb-3">Other assets (for net worth)</h3>
+        <div className="grid grid-cols-2 gap-3"><NumberField label="Cash / savings" value={data.household.cash} onChange={(v) => setHH({ cash: v })} /><NumberField label="Other assets" value={data.household.otherAssets} onChange={(v) => setHH({ otherAssets: v })} /></div>
+        <p className="text-xs text-stone-400 mt-2">Investment account values live in the Investments tab and are already counted in net worth.</p>
+      </Card>
+
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Foreign assets</h3><button onClick={() => setHH({ foreignAssets: [...(data.household.foreignAssets || []), { id: uid(), name: "", currency: "USD", cad: 0 }] })} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add asset</button></div>
+        {(data.household.foreignAssets || []).length === 0 && <p className="text-sm text-stone-400">Foreign property, accounts, or investments — entered in CAD, counted in your net worth.</p>}
+        <div className="space-y-2">
+          {(data.household.foreignAssets || []).map((a) => (
+            <div key={a.id} className="grid grid-cols-12 gap-2 items-end">
+              <TextField label="Asset" value={a.name} onChange={(v) => setHH({ foreignAssets: data.household.foreignAssets.map((x) => (x.id === a.id ? { ...x, name: v } : x)) })} className="col-span-5" />
+              <label className="col-span-3"><span className="text-xs text-stone-500">Currency</span>
+                <select value={a.currency} onChange={(e) => setHH({ foreignAssets: data.household.foreignAssets.map((x) => (x.id === a.id ? { ...x, currency: e.target.value } : x)) })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">{["USD", "EUR", "GBP", "INR", "CNY", "Other"].map((c) => <option key={c}>{c}</option>)}</select>
+              </label>
+              <NumberField label="Value (CAD)" value={a.cad} onChange={(v) => setHH({ foreignAssets: data.household.foreignAssets.map((x) => (x.id === a.id ? { ...x, cad: v } : x)) })} className="col-span-3" />
+              <button onClick={() => setHH({ foreignAssets: data.household.foreignAssets.filter((x) => x.id !== a.id) })} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+        {(data.household.foreignAssets || []).reduce((s, a) => s + num(a.cad), 0) > 100000 && (
+          <p className="text-xs text-amber-700 mt-2">Your foreign assets exceed CAD $100,000 — you likely need to file Form T1135 (Foreign Income Verification Statement). This tracks current value; T1135 uses cost. Confirm with the CRA or an accountant.</p>
+        )}
+        <p className="text-xs text-stone-400 mt-2">Enter values in CAD (convert at a recent rate). These count toward net worth on the dashboard.</p>
+      </Card>
+
+      <Card>
+        <h3 className="font-medium text-stone-700 mb-1">Backup & restore</h3>
+        <p className="text-xs text-stone-400 mb-3">Your data lives in this browser. Export a backup file regularly — keep it somewhere safe, or use it to move everything to another device or hand it to the other family-account user.</p>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={exportBackup} className="flex items-center gap-1.5 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Download size={15} /> Export backup</button>
+          <label className="flex items-center gap-1.5 text-sm bg-stone-700 text-white px-3 py-1.5 rounded-lg hover:bg-stone-600 cursor-pointer">
+            <RefreshCw size={15} /> Restore from file
+            <input type="file" accept="application/json,.json" className="hidden" onChange={(e) => importBackup(e.target.files[0])} />
+          </label>
+        </div>
+        {importMsg && <p className={`text-xs mt-2 ${importMsg.startsWith("Couldn't") ? "text-rose-600" : "text-emerald-600"}`}>{importMsg}</p>}
+        <p className="text-xs text-stone-400 mt-2">Restoring replaces what's currently loaded in this {data.snapshots ? "" : ""}view — export first if you're unsure.</p>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Tax estimate (multi-year, per-person, CPP/EI + credits) ---------- */
+function emptyTaxPersonFull() {
+  return { employment: 0, taxDeducted: 0, selfEmployment: 0, rental: 0, eligibleDividends: 0, nonEligDividends: 0, foreignIncome: 0, foreignTaxPaid: 0, otherIncome: 0,
+    rrsp: 0, unionDues: 0, otherDeductions: 0,
+    cppEiPaid: 0, age65: false, pensionIncome: 0, disability: false, donations: 0, medical: 0, tuition: 0,
+    claimChildcare: true };
+}
+function computeTax(person, year, opts = {}) {
+  const t = taxTableFor(year);
+  const p = provFor(t, opts.province || "BC");
+  const employment = num(person.employment);
+  const se = num(person.selfEmployment);
+  const grossDiv = num(person.eligibleDividends);
+  const grossedDiv = grossDiv * 1.38;
+  const nonEligDiv = num(person.nonEligDividends);
+  const grossedNonElig = nonEligDiv * 1.15; // non-eligible gross-up 15%
+  const foreign = num(person.foreignIncome);
+  const totalIncome = employment + se + num(person.rental) + grossedDiv + grossedNonElig + foreign + num(person.otherIncome) + num(person.pensionIncome);
+
+  const childcareDed = opts.childcareDed || 0;
+  const deductions = num(person.rrsp) + num(person.unionDues) + num(person.otherDeductions) + childcareDed;
+  const taxable = Math.max(0, totalIncome - deductions);
+
+  const pensionable = Math.max(0, Math.min(employment, t.cppMax / t.cppRate + t.cppExempt) - t.cppExempt);
+  const cppAuto = Math.min(pensionable * t.cppRate, t.cppMax);
+  const eiAuto = Math.min(employment * t.eiRate, t.eiMax);
+  const cppEi = num(person.cppEiPaid) > 0 ? num(person.cppEiPaid) : cppAuto + eiAuto;
+
+  let fedCreditBase = t.fedBPA;
+  if (person.age65) fedCreditBase += 9028;
+  if (person.disability) fedCreditBase += 10341;
+  fedCreditBase += Math.min(num(person.pensionIncome), 2000);
+  fedCreditBase += cppEi + num(person.tuition);
+  const medThreshold = Math.min(2834, totalIncome * 0.03);
+  const medClaim = Math.max(0, num(person.medical) - medThreshold);
+  fedCreditBase += medClaim;
+  const fedCredit = fedCreditBase * t.fedRate + num(person.donations) * 0.29;
+  const divCredit = grossedDiv * 0.150198 + grossedNonElig * 0.090301; // eligible + non-eligible federal DTC
+  let fedTax = Math.max(0, progressiveTax(taxable, t.fed) - fedCredit - divCredit);
+  if (p.quebec) fedTax = fedTax * (1 - QC_FED_ABATEMENT);
+
+  const provCreditBase = p.bpa + cppEi + Math.min(num(person.pensionIncome), 1000) + medClaim;
+  const provDivCr = grossedDiv * ((opts.province && PROV_DIV_CR[opts.province]) || 0) + grossedNonElig * ((opts.province && PROV_DIV_CR_NE[opts.province]) || 0);
+  let provTax = Math.max(0, progressiveTax(taxable, p.brackets) - provCreditBase * p.rate - provDivCr);
+  if (p.surtax) provTax += 0.20 * Math.max(0, provTax - p.surtax.a) + 0.36 * Math.max(0, provTax - p.surtax.b);
+  if (p.lowInc) {
+    const reduction = Math.max(0, p.lowInc.r - p.lowInc.claw * Math.max(0, taxable - p.lowInc.start));
+    provTax = Math.max(0, provTax - reduction);
+  }
+  // Foreign tax credit: lesser of foreign tax paid and Canadian tax on the foreign portion
+  let ftc = 0;
+  if (foreign > 0 && taxable > 0) {
+    const canTaxOnForeign = (fedTax + provTax) * Math.min(1, foreign / taxable);
+    ftc = Math.min(num(person.foreignTaxPaid), canTaxOnForeign);
+    const fedShare = fedTax + provTax > 0 ? fedTax / (fedTax + provTax) : 0.5;
+    fedTax = Math.max(0, fedTax - ftc * fedShare);
+    provTax = Math.max(0, provTax - ftc * (1 - fedShare));
+  }
+  const totalTax = fedTax + provTax;
+
+  return { totalIncome, taxable, deductions, cppEi, fedTax, provTax, bcTax: provTax, totalTax, childcareDed, ftc,
+    refund: num(person.taxDeducted) - totalTax, marginalRate: marginalAt(taxable, t, p) };
+}
+function marginalAt(income, t, p) {
+  const f = t.fed.find(([lim]) => income <= lim) || t.fed[t.fed.length - 1];
+  const b = p.brackets.find(([lim]) => income <= lim) || p.brackets[p.brackets.length - 1];
+  return (f[1] + b[1]) * 100;
+}
+
+function TaxEstimateCard({ data, setData }) {
+  const year = data.taxYear;
+  const t = taxTableFor(year);
+  const cc = computeChildcare(data, year);
+  const [mode, setMode] = useState("p1");
+  const [showAdv, setShowAdv] = useState(false);
+
+  // ensure full person shape
+  const getP = (key) => ({ ...emptyTaxPersonFull(), ...(data.taxEstimate?.[key] || {}) });
+  const setPerson = (key, patch) => setData((d) => ({ ...d, taxEstimate: { ...d.taxEstimate, [key]: { ...emptyTaxPersonFull(), ...(d.taxEstimate?.[key] || {}), ...patch } } }));
+
+  const totalNetRental = data.properties.reduce((s, p) => {
+    const pct = p.occupancy === "partial" ? num(p.personalUsePct) / 100 : 0;
+    const grossRent = monthlyRent(p) * 12;
+    const ops = T776_LINES.filter((l) => l.code !== "8960").reduce((a, l) => a + num(p.expenses[l.code]) * (1 - pct), 0);
+    const repairs = repairsByYear(p, year, "current").reduce((a, r) => a + num(r.amount) - (r.scope === "shared" ? num(r.amount) * pct : 0), 0);
+    return s + (grossRent - ops - repairs);
+  }, 0);
+
+  const people = [{ key: "p1", name: data.household.p1Name || "Person 1", lower: cc.lowerIsP1 }, { key: "p2", name: data.household.p2Name || "Person 2", lower: !cc.lowerIsP1 }];
+  const results = {};
+  people.forEach((pp) => {
+    const person = getP(pp.key);
+    const childcareDed = pp.lower && person.claimChildcare ? cc.deduction : 0;
+    results[pp.key] = computeTax(person, year, { childcareDed, province: data.household.province });
+  });
+  const combined = results.p1.refund + results.p2.refund;
+  const active = people.find((p) => p.key === mode);
+  const person = getP(mode);
+  const res = results[mode];
+
+  const Field = ({ label, k, hint }) => <NumberField label={label + (hint ? ` (${hint})` : "")} value={person[k]} onChange={(v) => setPerson(mode, { [k]: v })} />;
+  const Check = ({ label, k }) => (
+    <label className="flex items-center gap-2 text-sm text-stone-600 py-1"><input type="checkbox" checked={!!person[k]} onChange={(e) => setPerson(mode, { [k]: e.target.checked })} /> {label}</label>
+  );
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h3 className="font-medium text-stone-700">Tax estimate · {year}</h3>
+        <div className="flex bg-stone-100 rounded-full p-0.5 text-sm">
+          {people.map((pp) => (
+            <button key={pp.key} onClick={() => setMode(pp.key)} className={`px-3 py-1 rounded-full ${mode === pp.key ? "bg-white shadow-sm text-teal-700 font-medium" : "text-stone-500"}`}>{pp.name}</button>
+          ))}
+        </div>
+      </div>
+
+      {t.approx && <div className="mb-3 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">No verified tax tables for {year} yet — using {year < 2025 ? "older" : "latest (2026)"} rates as an approximation. Verified years: 2025, 2026.</div>}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Inputs */}
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-stone-500 uppercase tracking-wide">Income</div>
+          <Field label="Employment income" k="employment" hint="T4 box 14" />
+          <Field label="Income tax deducted" k="taxDeducted" hint="T4 box 22" />
+          <Field label="Self-employment income" k="selfEmployment" />
+          <Field label="Rental income (your share)" k="rental" />
+          <Field label="Eligible dividends (actual)" k="eligibleDividends" />
+          <Field label="Non-eligible dividends" k="nonEligDividends" hint="small-biz/CCPC" />
+          <Field label="Foreign income (in CAD)" k="foreignIncome" />
+          <Field label="Foreign tax paid (in CAD)" k="foreignTaxPaid" />
+          <Field label="Pension income" k="pensionIncome" />
+          <Field label="Other income" k="otherIncome" />
+
+          <div className="text-xs font-medium text-stone-500 uppercase tracking-wide pt-2">Deductions</div>
+          <Field label="RRSP deduction" k="rrsp" />
+          <Field label="Union / professional dues" k="unionDues" />
+          <Field label="Other deductions" k="otherDeductions" />
+          {active.lower && cc.deduction > 0 && <Check label={`Claim childcare deduction (${fmt(cc.deduction)})`} k="claimChildcare" />}
+
+          <button onClick={() => setShowAdv(!showAdv)} className="text-xs text-teal-700 pt-1">{showAdv ? "Hide" : "Show"} credits & advanced</button>
+          {showAdv && (
+            <div className="space-y-2 pt-1 border-t border-stone-100">
+              <Field label="Donations" k="donations" />
+              <Field label="Medical expenses" k="medical" />
+              <Field label="Tuition" k="tuition" />
+              <Field label="CPP+EI paid (override)" k="cppEiPaid" hint="auto if 0" />
+              <Check label="Age 65 or older" k="age65" />
+              <Check label="Eligible for disability amount" k="disability" />
+            </div>
+          )}
+        </div>
+
+        {/* Results */}
+        <div className="space-y-2">
+          <div className="bg-stone-50 rounded-xl p-3 space-y-1 text-sm">
+            <div className="flex justify-between text-stone-500"><span>Total income</span><span>{fmt(res.totalIncome)}</span></div>
+            {res.childcareDed > 0 && <div className="flex justify-between text-stone-500"><span>Childcare deduction</span><span>−{fmt(res.childcareDed)}</span></div>}
+            <div className="flex justify-between text-stone-500"><span>Total deductions</span><span>−{fmt(res.deductions)}</span></div>
+            <div className="flex justify-between font-medium border-t border-stone-200 pt-1"><span>Taxable income</span><span>{fmt(res.taxable)}</span></div>
+            <div className="flex justify-between text-stone-500"><span>Federal tax</span><span>{fmt(res.fedTax)}</span></div>
+            <div className="flex justify-between text-stone-500"><span>BC tax</span><span>{fmt(res.bcTax)}</span></div>
+            {res.ftc > 0 && <div className="flex justify-between text-stone-500"><span>Foreign tax credit</span><span>−{fmt(res.ftc)}</span></div>}
+            <div className="flex justify-between text-stone-500"><span>Est. CPP + EI</span><span>{fmt(res.cppEi)}</span></div>
+            <div className="flex justify-between font-medium border-t border-stone-200 pt-1"><span>Total income tax</span><span>{fmt(res.totalTax)}</span></div>
+            <div className="flex justify-between text-stone-500"><span>Tax withheld</span><span>{fmt(num(person.taxDeducted))}</span></div>
+            <div className="flex justify-between text-stone-400 text-xs"><span>Marginal rate</span><span>{res.marginalRate.toFixed(1)}%</span></div>
+          </div>
+          <div className={`rounded-xl p-4 text-center ${res.refund >= 0 ? "bg-emerald-50" : "bg-rose-50"}`}>
+            <div className={`text-xs ${res.refund >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{active.name} · estimated {res.refund >= 0 ? "refund" : "balance owing"}</div>
+            <div className={`text-3xl font-bold mt-1 ${res.refund >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt(Math.abs(res.refund))}</div>
+          </div>
+          {totalNetRental !== 0 && <p className="text-xs text-stone-400">Household net rental this year ≈ {fmt(totalNetRental)} — split by ownership into each person's "Rental income" field.</p>}
+        </div>
+      </div>
+
+      <div className={`mt-4 rounded-xl p-3 text-center font-semibold ${combined >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+        Combined household: estimated {combined >= 0 ? "refund" : "balance owing"} of {fmt(Math.abs(combined))}
+      </div>
+      <p className="text-xs text-stone-400 mt-2">A robust estimate using verified {year} federal + provincial brackets, CPP/EI, and major non-refundable credits (basic personal, CPP/EI, pension, age, disability, donations, medical, tuition). It still simplifies some income-tested credits and won't match a filed return exactly — use certified tax software or an accountant to file.</p>
+      {(getP("p1").foreignIncome > 0 || getP("p2").foreignIncome > 0) && (
+        <div className="mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">
+          Foreign income is taxed in Canada with a foreign tax credit for tax already paid abroad (the lesser of foreign tax paid and the Canadian tax on that income). This estimate doesn't model tax treaties or per-country rules. Heads-up: if your foreign property cost totals more than CAD $100,000 at any point in the year, you likely must file <strong>Form T1135</strong> — confirm with the CRA or an accountant.
+        </div>
+      )}
+
+      <CompareYears person={person} active={active} cc={cc} province={data.household.province} />
+    </Card>
+  );
+}
+
+function CompareYears({ person, active, cc, province }) {
+  const [open, setOpen] = useState(false);
+  const years = Object.keys(TAX_YEARS).map(Number).sort();
+  const rows = years.map((y) => {
+    const childcareDed = active.lower && person.claimChildcare ? computeChildcareForYear(cc, y) : 0;
+    return { y, ...computeTax(person, y, { childcareDed, province }) };
+  });
+  return (
+    <div className="mt-3">
+      <button onClick={() => setOpen(!open)} className="text-xs text-teal-700">{open ? "Hide" : "Compare"} years side by side</button>
+      {open && (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-xs text-stone-400 border-b border-stone-200"><th className="text-left py-1.5 font-normal">Year</th><th className="text-right font-normal">Taxable</th><th className="text-right font-normal">Total tax</th><th className="text-right font-normal">Avg rate</th><th className="text-right font-normal">Refund / owing</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.y} className="border-b border-stone-50">
+                  <td className="py-1.5">{r.y} <span className="text-xs text-stone-400">{active.name}</span></td>
+                  <td className="text-right text-stone-500">{fmt(r.taxable)}</td>
+                  <td className="text-right">{fmt(r.totalTax)}</td>
+                  <td className="text-right text-stone-500">{r.totalIncome ? ((r.totalTax / r.totalIncome) * 100).toFixed(1) : "0.0"}%</td>
+                  <td className={`text-right font-medium ${r.refund >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{r.refund >= 0 ? "+" : "−"}{fmt(Math.abs(r.refund))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-xs text-stone-400 mt-1">Same inputs, applied to each year's rates — useful for seeing how indexation and rate changes affect you. Uses {PROV_NAMES[province] || "BC"} provincial rates.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+function computeChildcareForYear(cc, y) { return cc.deduction; }
+
+/* ---------- Tax Report ---------- */
+function TaxReport({ data, setData }) {
+  const year = data.taxYear;
+  const setYear = (y) => setData((d) => ({ ...d, taxYear: num(y) }));
+  const summaries = data.properties.map((p) => {
+    const pct = p.occupancy === "partial" ? num(p.personalUsePct) / 100 : 0;
+    const grossRent = monthlyRent(p) * 12;
+    const recForLine = (code) => (data.receipts || []).filter((r) => r.applyTo === `rental:${p.id}` && receiptLine(r.category) === code && (r.date || "").slice(0, 4) === String(year)).reduce((s, r) => s + num(r.amount), 0);
+    const lines = T776_LINES.filter((l) => l.code !== "8960").map((l) => {
+      const total = num(p.expenses[l.code]) + recForLine(l.code);
+      const personal = total * pct;
+      return { ...l, total, personal, deductible: total - personal };
+    });
+    const currentRepairs = repairsByYear(p, year, "current");
+    const repairTotal = currentRepairs.reduce((s, r) => s + num(r.amount), 0) + recForLine("8960");
+    const repairPersonal = currentRepairs.reduce((s, r) => s + (r.scope === "shared" ? num(r.amount) * pct : 0), 0);
+    lines.push({ code: "8960", label: "Maintenance & repairs", total: repairTotal, personal: repairPersonal, deductible: repairTotal - repairPersonal });
+    lines.sort((a, b) => a.code.localeCompare(b.code));
+    const totalDeductible = lines.reduce((s, l) => s + l.deductible, 0);
+    const net = grossRent - totalDeductible;
+    const yourShare = net * (num(p.ownershipPct) / 100);
+    const capital = repairsByYear(p, year, "capital");
+    return { p, grossRent, lines, net, yourShare, capital };
+  });
+  const exportCSV = () => {
+    let rows = [["Property", "Line", "Category", "Total expense", "Personal portion", "Deductible"]];
+    summaries.forEach((s) => {
+      rows.push([s.p.name, "8299", "Gross rental income", s.grossRent.toFixed(2), "", ""]);
+      s.lines.forEach((l) => rows.push([s.p.name, l.code, l.label, l.total.toFixed(2), l.personal.toFixed(2), l.deductible.toFixed(2)]));
+      rows.push([s.p.name, "9369", "Net income before CCA", "", "", s.net.toFixed(2)]);
+      rows.push([s.p.name, "9946", `Your share (${s.p.ownershipPct}%)`, "", "", s.yourShare.toFixed(2)]);
+      s.capital.forEach((c) => rows.push([s.p.name, "CCA addition", c.description || c.date, c.amount.toFixed(2), "", ""]));
+      rows.push([]);
+    });
+    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `tax-summary-${year}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap justify-between items-center gap-3">
+        <div className="flex items-center gap-2"><span className="text-sm text-stone-600">Tax year</span>
+          <select value={year} onChange={(e) => setYear(e.target.value)} className="px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">
+            {Array.from({ length: 8 }, (_, i) => 2026 - i).map((y) => <option key={y} value={y}>{y}{TAX_YEARS[y] ? "" : " (approx)"}</option>)}
+          </select>
+        </div>
+        <button onClick={exportCSV} className="flex items-center gap-1.5 text-sm bg-stone-800 text-white px-3 py-1.5 rounded-lg hover:bg-stone-700"><Download size={15} /> Export CSV</button>
+      </div>
+      <TaxEstimateCard data={data} setData={setData} />
+      {summaries.length === 0 && <p className="text-sm text-stone-400">Add properties to generate T776 summaries.</p>}
+      {summaries.map((s) => (
+        <Card key={s.p.id}>
+          <div className="flex justify-between items-baseline mb-3"><h3 className="font-medium text-stone-700">{s.p.name} — T776 summary</h3><span className="text-xs text-stone-400">{s.p.occupancy === "partial" ? `${s.p.personalUsePct}% personal use` : "100% rental"}</span></div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-xs text-stone-400 border-b border-stone-200"><th className="text-left py-1.5 font-normal">Line</th><th className="text-left font-normal">Category</th><th className="text-right font-normal">Total</th><th className="text-right font-normal">Personal</th><th className="text-right font-normal">Deductible</th></tr></thead>
+              <tbody>
+                <tr className="border-b border-stone-100"><td className="py-1.5 text-stone-500">8299</td><td className="font-medium">Gross rental income</td><td className="text-right" colSpan={3}>{fmt2(s.grossRent)}</td></tr>
+                {s.lines.filter((l) => l.total > 0).map((l) => <tr key={l.code} className="border-b border-stone-50"><td className="py-1 text-stone-500">{l.code}</td><td>{l.label}</td><td className="text-right text-stone-500">{fmt2(l.total)}</td><td className="text-right text-stone-400">{l.personal ? fmt2(l.personal) : "—"}</td><td className="text-right">{fmt2(l.deductible)}</td></tr>)}
+                <tr className="border-t border-stone-200 font-medium"><td className="py-1.5 text-stone-500">9369</td><td colSpan={3}>Net rental income (before CCA)</td><td className={`text-right ${s.net >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt2(s.net)}</td></tr>
+                <tr className="text-stone-500"><td className="py-1">9946</td><td colSpan={3}>Your share ({s.p.ownershipPct}%)</td><td className="text-right">{fmt2(s.yourShare)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          {s.capital.length > 0 && (
+            <div className="mt-3 bg-stone-50 rounded-lg p-3">
+              <div className="text-xs font-medium text-stone-600 mb-1">Capital additions {year} → for CCA (line 9936)</div>
+              {s.capital.map((c) => <div key={c.id} className="flex justify-between text-xs text-stone-500 py-0.5"><span>{c.description || "—"} ({c.date || "no date"})</span><span>{fmt2(c.amount)}</span></div>)}
+              <p className="text-xs text-stone-400 mt-1.5">CCA isn't auto-calculated — it's optional and can affect your principal-residence exemption. Decide with your accountant.</p>
+            </div>
+          )}
+        </Card>
+      ))}
+      <Card className="bg-emerald-50 border-emerald-200">
+        <h3 className="font-medium text-emerald-800 mb-2">Other deductions to remember</h3>
+        <div className="text-sm text-emerald-900 space-y-1">
+          <div className="flex justify-between"><span>RRSP deduction (line 20800)</span><span>{fmt(contribInYear(data.investments?.rrsp?.contributions, year))}</span></div>
+          <div className="flex justify-between"><span>FHSA deduction (line 20805)</span><span>{fmt(contribInYear(data.investments?.fhsa?.contributions, year))}</span></div>
+          <div className="flex justify-between"><span>Childcare deduction (line 21400)</span><span>see Childcare tab</span></div>
+        </div>
+        <p className="text-xs text-emerald-700 mt-2">TFSA and RESP contributions aren't deductible, but RESP earns the CESG grant.</p>
+      </Card>
+      <Card className="bg-amber-50 border-amber-200"><div className="flex gap-2 text-sm text-amber-800"><AlertCircle size={18} className="shrink-0 mt-0.5" /><p>Organizes your records to CRA categories for {year}. A record-keeping aid, not tax advice or a filed return.</p></div></Card>
+    </div>
+  );
+}
