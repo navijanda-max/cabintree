@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
-import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User } from "lucide-react";
+import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock } from "lucide-react";
 import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL || "https://qjmunwkoaeckcctmadvq.supabase.co",
+  import.meta.env.VITE_SUPABASE_ANON_KEY || ""
+);
 
 const T776_LINES = [
   { code: "8521", label: "Advertising" },
@@ -348,6 +354,64 @@ function Onboarding({ onFinish }) {
   );
 }
 
+function AuthScreen({ onAuth }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      if (isSignUp) {
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({ email, password });
+        if (signUpError) throw signUpError;
+        if (authData?.user) {
+          await supabase.from("user_finance_data").insert({ user_id: authData.user.id, data: JSON.stringify(DEFAULTS()) });
+          onAuth(authData.user);
+        }
+      } else {
+        const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInError) throw signInError;
+        onAuth(authData.user);
+      }
+    } catch (err) {
+      setError(err.message || "Authentication failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-teal-700 to-emerald-700 text-white flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-4"><Logo size={72} /></div>
+          <h1 className="text-3xl font-bold">Cabintree</h1>
+          <p className="text-teal-100 mt-2">{isSignUp ? "Create your account" : "Sign in to your account"}</p>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4 bg-white/10 backdrop-blur p-6 rounded-xl">
+          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-3 rounded-lg bg-white/20 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white" />
+          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-3 rounded-lg bg-white/20 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white" />
+          {error && <p className="text-red-200 text-sm">{error}</p>}
+          <button type="submit" disabled={loading} className="w-full px-4 py-3 bg-white text-teal-700 font-semibold rounded-lg hover:bg-teal-50 disabled:opacity-50">
+            {loading ? "Loading…" : isSignUp ? "Create Account" : "Sign In"}
+          </button>
+        </form>
+        <p className="text-center text-teal-100 text-sm mt-4">
+          {isSignUp ? "Already have an account? " : "Don't have an account? "}
+          <button onClick={() => { setIsSignUp(!isSignUp); setError(""); }} className="underline hover:text-white">
+            {isSignUp ? "Sign in" : "Create one"}
+          </button>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [loaded, setLoaded] = useState(false);
@@ -355,31 +419,55 @@ export default function App() {
   const [lastSynced, setLastSynced] = useState(null);
   const [data, setData] = useState(DEFAULTS());
   const [onboard, setOnboard] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const shared = false; // household switching handled by HouseholdSwitcher in production
 
 
   useEffect(() => {
-    (async () => {
-      let m = "personal";
-      try { const r = await window.storage.get(MODE_KEY); if (r && r.value) m = r.value; } catch (e) {}
+    const checkAuth = async () => {
       try {
-        const res = await window.storage.get(m === "family" ? FAMILY_KEY : PERSONAL_KEY, m === "family");
-        if (res && res.value) setData(applyDefaults(JSON.parse(res.value)));
-      } catch (e) {}
-      try { const o = await window.storage.get(ONBOARD_KEY); if (!o || !o.value) setOnboard(true); } catch (e) { setOnboard(true); }
-      setMode(m);
-      setLoaded(true);
-    })();
+        const { data: { user: sessionUser } } = await supabase.auth.getUser();
+        if (sessionUser) {
+          setUser(sessionUser);
+          const { data: financialData } = await supabase.from("user_finance_data").select("data").eq("user_id", sessionUser.id).single();
+          if (financialData?.data) {
+            setData(applyDefaults(typeof financialData.data === "string" ? JSON.parse(financialData.data) : financialData.data));
+          }
+          try { const o = await window.storage.get(ONBOARD_KEY); if (!o || !o.value) setOnboard(true); } catch (e) { setOnboard(true); }
+        }
+      } catch (err) {
+        console.log("Auth check: no session or error loading data");
+      } finally {
+        setAuthLoading(false);
+        setLoaded(true);
+      }
+    };
+    checkAuth();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+      } else {
+        setUser(null);
+      }
+    });
+    return () => listener?.unsubscribe();
   }, []);
 
-  // persist working data to current scope
+  // persist working data to Supabase & localStorage
   useEffect(() => {
-    if (!loaded) return;
-    const t = setTimeout(() => {
-      window.storage.set(shared ? FAMILY_KEY : PERSONAL_KEY, JSON.stringify(data), shared).catch(() => {});
+    if (!loaded || !user) return;
+    const t = setTimeout(async () => {
+      try {
+        const { error } = await supabase.from("user_finance_data").update({ data: JSON.stringify(data), updated_at: new Date() }).eq("user_id", user.id);
+        if (!error) window.storage.set(shared ? FAMILY_KEY : PERSONAL_KEY, JSON.stringify(data), shared).catch(() => {});
+      } catch (e) {
+        console.error("Failed to save data to Supabase:", e);
+        window.storage.set(shared ? FAMILY_KEY : PERSONAL_KEY, JSON.stringify(data), shared).catch(() => {});
+      }
     }, 400);
     return () => clearTimeout(t);
-  }, [data, loaded, shared]);
+  }, [data, loaded, user, shared]);
 
   // monthly snapshot upsert (freezes prior months, keeps current month live)
   useEffect(() => {
@@ -421,6 +509,14 @@ export default function App() {
   const updProperty = (id, patch) => setData((d) => ({ ...d, properties: d.properties.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   const delProperty = (id) => setData((d) => ({ ...d, properties: d.properties.filter((p) => p.id !== id) }));
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setData(DEFAULTS());
+  };
+
+  if (authLoading) return <div className="p-8 text-stone-500">Loading…</div>;
+  if (!user) return <AuthScreen onAuth={setUser} />;
   if (!loaded) return <div className="p-8 text-stone-500">Loading your data…</div>;
 
   const finishOnboarding = (setup) => {
@@ -463,9 +559,12 @@ export default function App() {
               <p className="text-teal-100 text-xs mt-0.5 hidden sm:block">Grow your household finances</p>
             </div>
           </div>
-          <div className="flex bg-teal-800/40 rounded-full p-0.5 text-xs">
-            <span className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-white text-teal-700 font-medium"><User size={11} /> <span className="hidden sm:inline">Personal</span></span>
-            <span className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-teal-100"><Users size={11} /> <span className="hidden sm:inline">Family</span></span>
+          <div className="flex items-center gap-3">
+            <div className="flex bg-teal-800/40 rounded-full p-0.5 text-xs">
+              <span className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-white text-teal-700 font-medium"><User size={11} /> <span className="hidden sm:inline">Personal</span></span>
+              <span className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-teal-100"><Users size={11} /> <span className="hidden sm:inline">Family</span></span>
+            </div>
+            <button onClick={handleSignOut} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg bg-teal-800/40 hover:bg-teal-800/60 text-white text-xs sm:text-sm transition"><LogOut size={14} /> <span className="hidden sm:inline">Sign out</span></button>
           </div>
         </div>
       </header>
