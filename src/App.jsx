@@ -386,27 +386,135 @@ function AuthScreen({ onAuth }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-700 to-emerald-700 text-white flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-4"><Logo size={72} /></div>
-          <h1 className="text-3xl font-bold">Cabintree</h1>
-          <p className="text-teal-100 mt-2">{isSignUp ? "Create your account" : "Sign in to your account"}</p>
+    <div className="min-h-screen bg-gradient-to-br from-teal-700 to-emerald-700 text-white">
+      <div className="max-w-6xl mx-auto px-6 py-12 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+
+        {/* Left: Hero & Benefits */}
+        <div className="flex flex-col justify-center">
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <Logo size={48} />
+              <h1 className="text-4xl lg:text-5xl font-bold">Cabintree</h1>
+            </div>
+            <p className="text-xl text-teal-100 font-medium">Take control of your Canadian finances</p>
+          </div>
+
+          <p className="text-lg text-teal-50 mb-8 leading-relaxed">
+            Whether you're building wealth, tracking rental properties, or preparing for tax season — Cabintree makes it simple. Built by Canadians, for Canadians.
+          </p>
+
+          <div className="space-y-4 mb-10">
+            <div className="flex gap-3 items-start">
+              <div className="text-2xl mt-1">📊</div>
+              <div>
+                <h3 className="font-semibold text-white">Track Everything That Matters</h3>
+                <p className="text-teal-100 text-sm mt-1">Your household budget, investments, debts, and rental properties — all in one place. No spreadsheet headaches.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 items-start">
+              <div className="text-2xl mt-1">🇨🇦</div>
+              <div>
+                <h3 className="font-semibold text-white">Tax Planning Built In</h3>
+                <p className="text-teal-100 text-sm mt-1">Province-specific tax brackets, T776 rental reporting, and year-round refund estimates. Know exactly where you stand.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 items-start">
+              <div className="text-2xl mt-1">📈</div>
+              <div>
+                <h3 className="font-semibold text-white">Build Your Financial Confidence</h3>
+                <p className="text-teal-100 text-sm mt-1">Understand your income brackets, plan your net worth growth, and make informed decisions about your money.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 items-start">
+              <div className="text-2xl mt-1">🏠</div>
+              <div>
+                <h3 className="font-semibold text-white">Rental Properties Made Simple</h3>
+                <p className="text-teal-100 text-sm mt-1">Track tenant rent, mortgages, expenses, and equity across multiple properties. T776 reporting ready.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-4 text-sm text-teal-100">
+            <span className="flex items-center gap-2">✓ 100% Canadian tax support</span>
+            <span className="flex items-center gap-2">✓ Multi-device sync</span>
+            <span className="flex items-center gap-2">✓ Privacy-first</span>
+          </div>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4 bg-white/10 backdrop-blur p-6 rounded-xl">
-          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-3 rounded-lg bg-white/20 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white" />
-          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-3 rounded-lg bg-white/20 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white" />
-          {error && <p className="text-red-200 text-sm">{error}</p>}
-          <button type="submit" disabled={loading} className="w-full px-4 py-3 bg-white text-teal-700 font-semibold rounded-lg hover:bg-teal-50 disabled:opacity-50">
-            {loading ? "Loading…" : isSignUp ? "Create Account" : "Sign In"}
-          </button>
-        </form>
-        <p className="text-center text-teal-100 text-sm mt-4">
-          {isSignUp ? "Already have an account? " : "Don't have an account? "}
-          <button onClick={() => { setIsSignUp(!isSignUp); setError(""); }} className="underline hover:text-white">
-            {isSignUp ? "Sign in" : "Create one"}
-          </button>
-        </p>
+
+        {/* Right: Sign In / Sign Up Form */}
+        <div>
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold mb-2">
+                {isSignUp ? "Start Your Journey" : "Welcome Back"}
+              </h2>
+              <p className="text-teal-100 text-sm">
+                {isSignUp
+                  ? "Join thousands of Canadians taking control of their finances."
+                  : "Log in to continue managing your wealth."}
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-teal-50 mb-2">Email</label>
+                <input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full px-4 py-3 rounded-lg bg-white/20 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white focus:bg-white/25 transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-teal-50 mb-2">Password</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full px-4 py-3 rounded-lg bg-white/20 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white focus:bg-white/25 transition"
+                />
+              </div>
+
+              {error && (
+                <div className="bg-rose-900/30 border border-rose-200/30 text-rose-100 text-sm rounded-lg p-3">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full px-4 py-3 bg-white text-teal-700 font-semibold rounded-lg hover:bg-teal-50 disabled:opacity-50 transition mt-6"
+              >
+                {loading ? "Loading…" : isSignUp ? "Create Account" : "Sign In"}
+              </button>
+            </form>
+
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <p className="text-center text-teal-100 text-sm">
+                {isSignUp ? "Already have an account? " : "New to Cabintree? "}
+                <button
+                  onClick={() => { setIsSignUp(!isSignUp); setError(""); }}
+                  className="font-semibold text-white hover:text-teal-50 transition"
+                >
+                  {isSignUp ? "Sign in here" : "Create one"}
+                </button>
+              </p>
+            </div>
+
+            <p className="text-center text-teal-200 text-xs mt-4">
+              Your data is encrypted and secure. We never sell your information.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
