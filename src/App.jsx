@@ -399,40 +399,44 @@ function AuthScreen({ onAuth }) {
             <p className="text-xl text-teal-100 font-medium">Take control of your Canadian finances</p>
           </div>
 
-          <p className="text-lg text-teal-50 mb-8 leading-relaxed">
+          <p className="text-lg text-teal-50 mb-10 leading-relaxed">
             Whether you're building wealth, tracking rental properties, or preparing for tax season — Cabintree makes it simple. Built by Canadians, for Canadians.
           </p>
 
-          <div className="space-y-4 mb-10">
-            <div className="flex gap-3 items-start">
-              <div className="text-2xl mt-1">📊</div>
-              <div>
-                <h3 className="font-semibold text-white">Track Everything That Matters</h3>
-                <p className="text-teal-100 text-sm mt-1">Your household budget, investments, debts, and rental properties — all in one place. No spreadsheet headaches.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+            {/* Track Everything */}
+            <div className="group relative overflow-hidden rounded-xl h-48 cursor-pointer">
+              <img src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=500&h=400&fit=crop" alt="Track Everything" className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
+              <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 via-teal-900/40 to-transparent flex flex-col justify-end p-4">
+                <h3 className="font-bold text-white text-lg">Track Everything</h3>
+                <p className="text-teal-100 text-xs mt-1">Budget, investments & properties in one place</p>
               </div>
             </div>
 
-            <div className="flex gap-3 items-start">
-              <div className="text-2xl mt-1">🇨🇦</div>
-              <div>
-                <h3 className="font-semibold text-white">Tax Planning Built In</h3>
-                <p className="text-teal-100 text-sm mt-1">Province-specific tax brackets, T776 rental reporting, and year-round refund estimates. Know exactly where you stand.</p>
+            {/* Tax Planning */}
+            <div className="group relative overflow-hidden rounded-xl h-48 cursor-pointer">
+              <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=500&h=400&fit=crop" alt="Tax Planning" className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
+              <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 via-teal-900/40 to-transparent flex flex-col justify-end p-4">
+                <h3 className="font-bold text-white text-lg">Tax Planning Built In</h3>
+                <p className="text-teal-100 text-xs mt-1">Canadian tax brackets & refund estimates</p>
               </div>
             </div>
 
-            <div className="flex gap-3 items-start">
-              <div className="text-2xl mt-1">📈</div>
-              <div>
-                <h3 className="font-semibold text-white">Build Your Financial Confidence</h3>
-                <p className="text-teal-100 text-sm mt-1">Understand your income brackets, plan your net worth growth, and make informed decisions about your money.</p>
+            {/* Financial Confidence */}
+            <div className="group relative overflow-hidden rounded-xl h-48 cursor-pointer">
+              <img src="https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=500&h=400&fit=crop" alt="Financial Confidence" className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
+              <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 via-teal-900/40 to-transparent flex flex-col justify-end p-4">
+                <h3 className="font-bold text-white text-lg">Build Confidence</h3>
+                <p className="text-teal-100 text-xs mt-1">Understand your net worth growth</p>
               </div>
             </div>
 
-            <div className="flex gap-3 items-start">
-              <div className="text-2xl mt-1">🏠</div>
-              <div>
-                <h3 className="font-semibold text-white">Rental Properties Made Simple</h3>
-                <p className="text-teal-100 text-sm mt-1">Track tenant rent, mortgages, expenses, and equity across multiple properties. T776 reporting ready.</p>
+            {/* Rental Properties */}
+            <div className="group relative overflow-hidden rounded-xl h-48 cursor-pointer">
+              <img src="https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=500&h=400&fit=crop" alt="Rental Properties" className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
+              <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 via-teal-900/40 to-transparent flex flex-col justify-end p-4">
+                <h3 className="font-bold text-white text-lg">Properties Made Simple</h3>
+                <p className="text-teal-100 text-xs mt-1">Track multiple properties & T776 reporting</p>
               </div>
             </div>
           </div>
