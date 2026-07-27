@@ -3,8 +3,8 @@ import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, Credit
 import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://qjmunwkoaeckcctmadvq.supabase.co";
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqbXVud2tvYWVja2NjdG1hZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMDk2NzcsImV4cCI6MjA5NjY4NTY3N30.WWlrj40__XP6caN-WGbwgyUJvikg5vmCLV8-W6LD8Ik";
+const SUPABASE_URL = "https://qjmunwkoaeckcctmadvq.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqbXVud2tvYWVja2NjdG1hZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMDk2NzcsImV4cCI6MjA5NjY4NTY3N30.WWlrj40__XP6caN-WGbwgyUJvikg5vmCLV8-W6LD8Ik";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
