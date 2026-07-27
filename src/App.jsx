@@ -556,14 +556,14 @@ export default function App() {
       }
     };
     checkAuth();
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         setUser(session.user);
       } else {
         setUser(null);
       }
     });
-    return () => listener?.unsubscribe();
+    return () => subscription?.unsubscribe();
   }, []);
 
   // persist working data to Supabase & localStorage
