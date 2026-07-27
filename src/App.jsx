@@ -4,7 +4,7 @@ import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Ca
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://qjmunwkoaeckcctmadvq.supabase.co";
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxbXVud2tvYWVja2NjdG1hZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDcyNDYxNTUsImV4cCI6MTkyMzAxNDI1NX0.5R-R9f1E6vN7X8K7tG2H3I9J4K5L6M7N8O9P0Q1R2S";
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqbXVud2tvYWVja2NjdG1hZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMDk2NzcsImV4cCI6MjA5NjY4NTY3N30.WWlrj40__XP6caN-WGbwgyUJvikg5vmCLV8-W6LD8Ik";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
