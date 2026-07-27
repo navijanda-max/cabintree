@@ -3,10 +3,14 @@ import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, Credit
 import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL || "https://qjmunwkoaeckcctmadvq.supabase.co",
-  import.meta.env.VITE_SUPABASE_ANON_KEY || ""
-);
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://qjmunwkoaeckcctmadvq.supabase.co";
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!SUPABASE_KEY) {
+  console.warn("⚠️ VITE_SUPABASE_ANON_KEY not set in environment variables");
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY || "");
 
 const T776_LINES = [
   { code: "8521", label: "Advertising" },
