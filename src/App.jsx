@@ -4,13 +4,9 @@ import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Ca
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://qjmunwkoaeckcctmadvq.supabase.co";
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxbXVud2tvYWVja2NjdG1hZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDcyNDYxNTUsImV4cCI6MTkyMzAxNDI1NX0.5R-R9f1E6vN7X8K7tG2H3I9J4K5L6M7N8O9P0Q1R2S";
 
-if (!SUPABASE_KEY) {
-  console.warn("⚠️ VITE_SUPABASE_ANON_KEY not set in environment variables");
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY || "");
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const T776_LINES = [
   { code: "8521", label: "Advertising" },
