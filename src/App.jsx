@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock, Mail, CheckCircle } from "lucide-react";
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { createClient } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
+import { Camera as CapCamera, CameraResultType, CameraSource } from "@capacitor/camera";
+import { App as CapApp } from "@capacitor/app";
 
 const SUPABASE_URL = "https://qjmunwkoaeckcctmadvq.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqbXVud2tvYWVja2NjdG1hZHZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMDk2NzcsImV4cCI6MjA5NjY4NTY3N30.WWlrj40__XP6caN-WGbwgyUJvikg5vmCLV8-W6LD8Ik";
@@ -192,6 +195,27 @@ async function extractFromFile(file) {
   const dataUrl = await compressImage(file);
   const text = await ocrImage(dataUrl);
   return { dataUrl, text };
+}
+
+const isNative = () => Capacitor.isNativePlatform();
+
+// Native camera/photo-library capture (iOS/Android app only) — returns null if the user cancels.
+async function extractFromNativeCamera() {
+  try {
+    const photo = await CapCamera.getPhoto({
+      quality: 70,
+      resultType: CameraResultType.DataUrl,
+      source: CameraSource.Prompt,
+      promptLabelHeader: "Add Receipt",
+      promptLabelPhoto: "Choose from Library",
+      promptLabelPicture: "Take Photo",
+    });
+    const dataUrl = photo.dataUrl;
+    const text = await ocrImage(dataUrl);
+    return { dataUrl, text };
+  } catch (e) {
+    return null; // user canceled
+  }
 }
 
 const fmt = (n) => (Number(n) || 0).toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
@@ -1025,9 +1049,25 @@ export default function App() {
     })();
   }, [user, householdId]);
 
+  // Invite token can arrive via the initial page URL (web, or a cold-launch deep link) or, on
+  // native, via an appUrlOpen event if the app was already running when the link was tapped.
+  const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get("invite"));
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let remove;
+    CapApp.addListener("appUrlOpen", (data) => {
+      try {
+        const token = new URL(data.url).searchParams.get("invite");
+        if (token) setInviteToken(token);
+      } catch (e) {}
+    }).then((sub) => { remove = sub.remove; });
+    return () => { if (remove) remove(); };
+  }, []);
+
   // accept a pending household invite from a shared link (?invite=<token>)
   useEffect(() => {
-    const token = new URLSearchParams(window.location.search).get("invite");
+    const token = inviteToken;
     if (!token) return;
     if (!user) {
       setInviteBanner({ status: "pending", token });
@@ -1047,10 +1087,11 @@ export default function App() {
       } catch (err) {
         setInviteBanner({ status: "error", message: err.message || "Couldn't accept that invite." });
       } finally {
+        setInviteToken(null);
         window.history.replaceState({}, "", window.location.pathname);
       }
     })();
-  }, [user]);
+  }, [user, inviteToken]);
 
   // persist working data to Supabase & localStorage
   useEffect(() => {
@@ -1332,12 +1373,23 @@ function IncomeTracker({ data, setData }) {
     setData((d) => ({ ...d, payTemplates: [...(d.payTemplates || []), { id: uid(), person, name: `Pay template ${n}`, gross: last ? num(last.gross) : 0, taxWithheld: last ? num(last.taxWithheld) : 0 }] }));
   };
 
+  const applyStubText = (person, text) => {
+    const { gross, taxWithheld, payDate } = parsePayStubText(text);
+    setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: payDate || new Date().toISOString().slice(0, 10), gross, taxWithheld, source: "paystub" }, ...(d.incomeLog || [])] }));
+  };
   const uploadStub = async (person, file) => {
     if (!file) return; setBusy(true);
     try {
       const { text } = await extractFromFile(file);
-      const { gross, taxWithheld, payDate } = parsePayStubText(text);
-      setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: payDate || new Date().toISOString().slice(0, 10), gross, taxWithheld, source: "paystub" }, ...(d.incomeLog || [])] }));
+      applyStubText(person, text);
+    } catch (e) {}
+    setBusy(false);
+  };
+  const captureStub = async (person) => {
+    setBusy(true);
+    try {
+      const result = await extractFromNativeCamera();
+      if (result) applyStubText(person, result.text);
     } catch (e) {}
     setBusy(false);
   };
@@ -1397,7 +1449,11 @@ function IncomeTracker({ data, setData }) {
             <div className="text-xs text-stone-400 mt-1 text-center">So far this year: {fmt(ytd)} earned · {fmt(withheld)} tax withheld{hasOneTime ? ` · incl. ${fmt(oneTimeGross(pp.key))} one-time (not annualized)` : ""}</div>
             <div className="flex flex-wrap gap-3 mt-2 items-center">
               <button onClick={() => addEntry(pp.key)} className="text-xs flex items-center gap-1 text-teal-700"><Plus size={12} /> Log pay</button>
-              <label className="text-xs flex items-center gap-1 text-teal-700 cursor-pointer">{busy ? <Sparkles size={12} className="animate-pulse" /> : <Camera size={12} />} Upload pay stub<input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => uploadStub(pp.key, e.target.files[0])} /></label>
+              {isNative() ? (
+                <button onClick={() => captureStub(pp.key)} className="text-xs flex items-center gap-1 text-teal-700">{busy ? <Sparkles size={12} className="animate-pulse" /> : <Camera size={12} />} Upload pay stub</button>
+              ) : (
+                <label className="text-xs flex items-center gap-1 text-teal-700 cursor-pointer">{busy ? <Sparkles size={12} className="animate-pulse" /> : <Camera size={12} />} Upload pay stub<input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => uploadStub(pp.key, e.target.files[0])} /></label>
+              )}
               <button onClick={() => saveTemplate(pp.key)} className="text-xs text-stone-500 hover:text-stone-700">Save as template</button>
             </div>
             {/* recurring templates */}
@@ -2223,16 +2279,27 @@ function Receipts({ data, setData, shared }) {
     setImages((m) => { const n = { ...m }; delete n[id]; return n; });
     try { await window.storage.delete(`receipt-img:${id}`, shared); } catch (e) {}
   };
+  const applyExtraction = async (id, dataUrl, text) => {
+    setImages((m) => ({ ...m, [id]: dataUrl }));
+    updR(id, { hasImage: true, photoAddedAt: Date.now(), photoExpired: false });
+    await window.storage.set(`receipt-img:${id}`, dataUrl, shared);
+    const { amount, date, merchant } = parseReceiptText(text);
+    updR(id, { label: merchant, date, amount, category: cats[0] || "Other" });
+  };
   const onFile = async (id, file) => {
     if (!file) return;
     setBusy(id);
     try {
       const { dataUrl, text } = await extractFromFile(file);
-      setImages((m) => ({ ...m, [id]: dataUrl }));
-      updR(id, { hasImage: true, photoAddedAt: Date.now(), photoExpired: false });
-      await window.storage.set(`receipt-img:${id}`, dataUrl, shared);
-      const { amount, date, merchant } = parseReceiptText(text);
-      updR(id, { label: merchant, date, amount, category: cats[0] || "Other" });
+      await applyExtraction(id, dataUrl, text);
+    } catch (e) {}
+    setBusy(null);
+  };
+  const onNativeCapture = async (id) => {
+    setBusy(id);
+    try {
+      const result = await extractFromNativeCamera();
+      if (result) await applyExtraction(id, result.dataUrl, result.text);
     } catch (e) {}
     setBusy(null);
   };
@@ -2297,8 +2364,15 @@ function Receipts({ data, setData, shared }) {
                   <div className="w-20 shrink-0">
                     {images[r.id]
                       ? <img src={images[r.id]} alt="receipt" className="w-20 h-20 object-cover rounded-lg border border-stone-200" />
-                      : <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-lg cursor-pointer text-stone-400 hover:border-teal-400 hover:text-teal-500"><Camera size={18} /><span className="text-[10px] mt-1 text-center leading-tight">Add photo or PDF</span><input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>}
-                    {images[r.id] && !busy && <label className="text-[10px] text-teal-700 cursor-pointer block mt-1 text-center hover:underline">Replace<input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>}
+                      : isNative()
+                        ? <button onClick={() => onNativeCapture(r.id)} className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-lg text-stone-400 hover:border-teal-400 hover:text-teal-500"><Camera size={18} /><span className="text-[10px] mt-1">Add photo</span></button>
+                        : <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-lg cursor-pointer text-stone-400 hover:border-teal-400 hover:text-teal-500"><Camera size={18} /><span className="text-[10px] mt-1 text-center leading-tight">Add photo or PDF</span><input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>}
+                    {images[r.id] && !busy && (isNative()
+                      ? <button onClick={() => onNativeCapture(r.id)} className="text-[10px] text-teal-700 block mt-1 text-center hover:underline w-full">Replace</button>
+                      : <label className="text-[10px] text-teal-700 cursor-pointer block mt-1 text-center hover:underline">Replace<input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>)}
+                    {isNative() && !busy && (
+                      <label className="text-[10px] text-stone-400 cursor-pointer block mt-1 text-center hover:underline hover:text-teal-700">or PDF<input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>
+                    )}
                   </div>
                   <div className="flex-1 grid grid-cols-2 gap-2">
                     <TextField label="Label / merchant" value={r.label} onChange={(v) => updR(r.id, { label: v })} />
