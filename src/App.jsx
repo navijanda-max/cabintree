@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock } from "lucide-react";
+import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock, Mail, CheckCircle } from "lucide-react";
 import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { createClient } from "@supabase/supabase-js";
 
@@ -25,7 +25,6 @@ const T776_LINES = [
 
 const PERSONAL_KEY = "family-finance-tracker-v1";
 const FAMILY_KEY = "family-finance-tracker-shared-v1";
-const MODE_KEY = "ftt-mode-v1";
 const ONBOARD_KEY = "cabintree-onboarded-v1";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const currentMonth = () => new Date().toISOString().slice(0, 7);
@@ -193,7 +192,8 @@ function computeTotals(data) {
   const props = data.properties || [];
   const investments = investTotal(data.investments);
   const propValue = props.reduce((s, p) => s + num(p.currentValue), 0);
-  const cash = num(data.household.cash), other = num(data.household.otherAssets);
+  const accountsCash = (data.household.accounts || []).reduce((s, a) => s + num(a.balance), 0);
+  const cash = num(data.household.cash) + accountsCash, other = num(data.household.otherAssets);
   const foreignAssets = (data.household.foreignAssets || []).reduce((s, a) => s + num(a.cad), 0);
   const assets = propValue + cash + other + investments + foreignAssets;
   const mortgage = props.reduce((s, p) => s + num(p.mortgage.balance), 0);
@@ -218,10 +218,10 @@ function computeChildcare(data, year) {
 }
 
 const DEFAULTS = () => ({
-  household: { p1Name: "Me", p1Income: 0, p2Name: "Spouse/Partner", p2Income: 0, cash: 0, otherAssets: 0, province: "BC", foreignAssets: [] },
+  household: { p1Name: "Me", p1Income: 0, p2Name: "Spouse/Partner", p2Income: 0, cash: 0, otherAssets: 0, province: "BC", foreignAssets: [], accounts: [] },
   properties: [], children: [], childcare: [], vehicles: [], bills: [], goals: [],
   investments: emptyInvestments(), debts: [], dependents: [], oneTime: [], incomeLog: [], payTemplates: [],
-  receipts: [], receiptCategories: ["Groceries", "Home / Repairs", "Auto", "Medical", "Childcare", "Utilities", "Dining", "Other"],
+  receipts: [], receiptCategories: ["Groceries", "Home / Repairs", "Auto", "Medical", "Childcare", "Utilities", "Dining", "Phone/Internet", "Insurance", "Subscriptions", "Transportation", "Home", "Travel", "Gifts", "Other"],
   budget: { monthlyIncome: 0, envelopes: [] },
   taxEstimate: { p1: emptyTaxPerson(), p2: emptyTaxPerson() },
   snapshots: [], taxYear: new Date().getFullYear(),
@@ -233,20 +233,25 @@ function applyDefaults(p) {
     household: { ...base.household, ...(p.household || {}) },
     investments: { ...emptyInvestments(), ...(p.investments || {}) },
     taxEstimate: { p1: { ...emptyTaxPerson(), ...(p.taxEstimate?.p1 || {}) }, p2: { ...emptyTaxPerson(), ...(p.taxEstimate?.p2 || {}) } },
+    receiptCategories: Array.from(new Set([...(p.receiptCategories || base.receiptCategories), ...base.receiptCategories])),
   };
 }
 
-/* ---------- Brand logo (reversed coin+pine, for teal header) ---------- */
-function Logo({ size = 40 }) {
+/* ---------- Brand logo (coin+pine glyph) ---------- */
+function Logo({ size = 40, tone = "reversed" }) {
+  // "reversed": white glyph on translucent-white square, for teal/dark backgrounds (default, used in the app header).
+  // "brand": teal glyph on transparent, for light backgrounds (landing page, favicon).
+  const bg = tone === "brand" ? "none" : "rgba(255,255,255,0.14)";
+  const fg = tone === "brand" ? "#0d9488" : "#ffffff";
   return (
     <svg width={size} height={size} viewBox="0 0 240 240" aria-label="Cabintree">
-      <rect x="0" y="0" width="240" height="240" rx="54" fill="rgba(255,255,255,0.14)" />
-      <circle cx="120" cy="120" r="74" fill="none" stroke="#ffffff" strokeWidth="6" />
-      <circle cx="120" cy="120" r="62" fill="none" stroke="#ffffff" strokeWidth="2" opacity="0.55" />
-      <polygon points="92,150 148,150 120,116" fill="#ffffff" />
-      <polygon points="98,124 142,124 120,92" fill="#ffffff" />
-      <polygon points="104,100 136,100 120,70" fill="#ffffff" />
-      <rect x="115" y="150" width="10" height="16" rx="2" fill="#ffffff" />
+      <rect x="0" y="0" width="240" height="240" rx="54" fill={bg} />
+      <circle cx="120" cy="120" r="74" fill="none" stroke={fg} strokeWidth="6" />
+      <circle cx="120" cy="120" r="62" fill="none" stroke={fg} strokeWidth="2" opacity="0.55" />
+      <polygon points="92,150 148,150 120,116" fill={fg} />
+      <polygon points="98,124 142,124 120,92" fill={fg} />
+      <polygon points="104,100 136,100 120,70" fill={fg} />
+      <rect x="115" y="150" width="10" height="16" rx="2" fill={fg} />
     </svg>
   );
 }
@@ -354,12 +359,20 @@ function Onboarding({ onFinish }) {
   );
 }
 
-function AuthScreen({ onAuth }) {
+function AuthScreen({ onAuth, inviteBanner }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pendingVerification, setPendingVerification] = useState(false);
+  const [resendStatus, setResendStatus] = useState("");
+
+  const handleResend = async () => {
+    setResendStatus("sending");
+    const { error: resendError } = await supabase.auth.resend({ type: "signup", email });
+    setResendStatus(resendError ? "error" : "sent");
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -369,14 +382,24 @@ function AuthScreen({ onAuth }) {
       if (isSignUp) {
         const { data: authData, error: signUpError } = await supabase.auth.signUp({ email, password });
         if (signUpError) throw signUpError;
-        if (authData?.user) {
-          await supabase.from("user_finance_data").insert({ user_id: authData.user.id, data: JSON.stringify(DEFAULTS()) });
+        if (authData?.session) {
+          // email confirmation is disabled on this project — session is issued immediately
           onAuth(authData.user);
+        } else {
+          // confirmation required: no session yet, don't let them into the app
+          setPendingVerification(true);
         }
       } else {
         const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-        if (signInError) throw signInError;
-        onAuth(authData.user);
+        if (signInError) {
+          if (/email not confirmed/i.test(signInError.message)) {
+            setPendingVerification(true);
+          } else {
+            throw signInError;
+          }
+        } else {
+          onAuth(authData.user);
+        }
       }
     } catch (err) {
       setError(err.message || "Authentication failed");
@@ -385,136 +408,154 @@ function AuthScreen({ onAuth }) {
     }
   };
 
+  if (pendingVerification) {
+    return (
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center px-6">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-stone-200 shadow-sm p-8 text-center">
+          <div className="w-14 h-14 rounded-full bg-teal-50 flex items-center justify-center mx-auto mb-5">
+            <Mail size={26} className="text-teal-600" />
+          </div>
+          <h2 className="text-2xl font-semibold text-stone-900 mb-2">Verify your email</h2>
+          <p className="text-stone-500 text-sm mb-1">
+            We sent a confirmation link to
+          </p>
+          <p className="font-semibold text-stone-800 mb-4">{email}</p>
+          <p className="text-stone-500 text-sm mb-6">
+            Click the link in that email from Cabintree to activate your account, then come back here and sign in.
+          </p>
+
+          {resendStatus === "sent" ? (
+            <p className="text-emerald-600 text-sm flex items-center justify-center gap-2 mb-2">
+              <CheckCircle size={16} /> Email resent — check your inbox (and spam folder).
+            </p>
+          ) : (
+            <button
+              onClick={handleResend}
+              disabled={resendStatus === "sending"}
+              className="text-teal-700 font-semibold text-sm underline hover:text-teal-800 disabled:opacity-50"
+            >
+              {resendStatus === "sending" ? "Resending…" : "Didn't get it? Resend email"}
+            </button>
+          )}
+
+          <div className="mt-6 pt-6 border-t border-stone-100">
+            <button
+              onClick={() => { setPendingVerification(false); setIsSignUp(false); setResendStatus(""); }}
+              className="text-stone-400 text-sm hover:text-stone-600 transition"
+            >
+              ← Back to sign in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const benefits = [
+    { icon: Wallet, title: "Track everything", sub: "Budget, investments & properties in one place" },
+    { icon: FileText, title: "Tax planning built in", sub: "Canadian tax brackets & refund estimates" },
+    { icon: TrendingUp, title: "Build confidence", sub: "Understand your net worth growth over time" },
+    { icon: Building2, title: "Properties made simple", sub: "Track multiple properties & T776 reporting" },
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-700 to-emerald-700 text-white">
-      <div className="max-w-6xl mx-auto px-6 py-12 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+    <div className="min-h-screen bg-stone-50">
+      <div className="max-w-6xl mx-auto px-6 py-16 lg:py-24 grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-20 items-center">
 
         {/* Left: Hero & Benefits */}
         <div className="flex flex-col justify-center">
-          <div className="mb-8">
-            <div className="flex items-center gap-3 mb-4">
-              <Logo size={48} />
-              <h1 className="text-4xl lg:text-5xl font-bold">Cabintree</h1>
-            </div>
-            <p className="text-xl text-teal-100 font-medium">Take control of your Canadian finances</p>
+          <div className="flex items-center gap-3 mb-6">
+            <Logo size={40} tone="brand" />
+            <span className="text-lg font-semibold text-stone-900 tracking-tight">Cabintree</span>
           </div>
 
-          <p className="text-lg text-teal-50 mb-10 leading-relaxed">
+          <h1 className="text-4xl lg:text-[3.25rem] font-semibold text-stone-900 tracking-tight leading-[1.08] mb-5">
+            Take control of your<br />Canadian finances
+          </h1>
+
+          <p className="text-lg text-stone-500 mb-12 leading-relaxed max-w-md">
             Whether you're building wealth, tracking rental properties, or preparing for tax season — Cabintree makes it simple. Built by Canadians, for Canadians.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
-            {/* Track Everything */}
-            <div className="group relative overflow-hidden rounded-xl h-48 cursor-pointer">
-              <img src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=500&h=400&fit=crop" alt="Track Everything" className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
-              <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 via-teal-900/40 to-transparent flex flex-col justify-end p-4">
-                <h3 className="font-bold text-white text-lg">Track Everything</h3>
-                <p className="text-teal-100 text-xs mt-1">Budget, investments & properties in one place</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-7 mb-12">
+            {benefits.map((b) => (
+              <div key={b.title} className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+                  <b.icon size={17} className="text-teal-600" />
+                </div>
+                <div>
+                  <h3 className="font-medium text-stone-800 text-sm">{b.title}</h3>
+                  <p className="text-stone-400 text-xs mt-0.5 leading-relaxed">{b.sub}</p>
+                </div>
               </div>
-            </div>
-
-            {/* Tax Planning */}
-            <div className="group relative overflow-hidden rounded-xl h-48 cursor-pointer">
-              <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=500&h=400&fit=crop" alt="Tax Planning" className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
-              <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 via-teal-900/40 to-transparent flex flex-col justify-end p-4">
-                <h3 className="font-bold text-white text-lg">Tax Planning Built In</h3>
-                <p className="text-teal-100 text-xs mt-1">Canadian tax brackets & refund estimates</p>
-              </div>
-            </div>
-
-            {/* Financial Confidence */}
-            <div className="group relative overflow-hidden rounded-xl h-48 cursor-pointer">
-              <img src="https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=500&h=400&fit=crop" alt="Financial Confidence" className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
-              <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 via-teal-900/40 to-transparent flex flex-col justify-end p-4">
-                <h3 className="font-bold text-white text-lg">Build Confidence</h3>
-                <p className="text-teal-100 text-xs mt-1">Understand your net worth growth</p>
-              </div>
-            </div>
-
-            {/* Rental Properties */}
-            <div className="group relative overflow-hidden rounded-xl h-48 cursor-pointer">
-              <img src="https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=500&h=400&fit=crop" alt="Rental Properties" className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
-              <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 via-teal-900/40 to-transparent flex flex-col justify-end p-4">
-                <h3 className="font-bold text-white text-lg">Properties Made Simple</h3>
-                <p className="text-teal-100 text-xs mt-1">Track multiple properties & T776 reporting</p>
-              </div>
-            </div>
+            ))}
           </div>
 
-          <div className="flex flex-wrap gap-4 text-sm text-teal-100">
-            <span className="flex items-center gap-2">✓ 100% Canadian tax support</span>
-            <span className="flex items-center gap-2">✓ Multi-device sync</span>
-            <span className="flex items-center gap-2">✓ Privacy-first</span>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-stone-400">
+            <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-600" /> 100% Canadian tax support</span>
+            <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-600" /> Multi-device sync</span>
+            <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-600" /> Privacy-first</span>
           </div>
         </div>
 
         {/* Right: Sign In / Sign Up Form */}
         <div>
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold mb-2">
-                {isSignUp ? "Start Your Journey" : "Welcome Back"}
+          {inviteBanner && (
+            <div className="bg-teal-50 border border-teal-200 text-teal-800 text-sm rounded-2xl p-4 mb-4 flex items-start gap-2">
+              <Users size={16} className="shrink-0 mt-0.5" />
+              <span>You've been invited to a shared household on Cabintree. Sign in or create an account using the email address the invite was sent to, then it'll be accepted automatically.</span>
+            </div>
+          )}
+          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-8">
+            <div className="mb-7">
+              <h2 className="text-xl font-semibold text-stone-900 mb-1.5">
+                {isSignUp ? "Create your account" : "Welcome back"}
               </h2>
-              <p className="text-teal-100 text-sm">
+              <p className="text-stone-400 text-sm">
                 {isSignUp
-                  ? "Join thousands of Canadians taking control of their finances."
+                  ? "Join Canadians taking control of their finances."
                   : "Log in to continue managing your wealth."}
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-teal-50 mb-2">Email</label>
-                <input
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 rounded-lg bg-white/20 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white focus:bg-white/25 transition"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-teal-50 mb-2">Password</label>
-                <input
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 rounded-lg bg-white/20 placeholder-teal-200 text-white outline-none border-2 border-white/25 focus:border-white focus:bg-white/25 transition"
-                />
-              </div>
+              <TextField label="Email" type="email" placeholder="you@example.com" value={email} onChange={setEmail} required />
+              <TextField label="Password" type="password" placeholder="••••••••" value={password} onChange={setPassword} required />
 
               {error && (
-                <div className="bg-rose-900/30 border border-rose-200/30 text-rose-100 text-sm rounded-lg p-3">
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg p-3">
                   {error}
                 </div>
+              )}
+
+              {isSignUp && (
+                <p className="text-stone-400 text-xs -mt-1">
+                  We'll email you a link to verify your address before you can sign in.
+                </p>
               )}
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full px-4 py-3 bg-white text-teal-700 font-semibold rounded-lg hover:bg-teal-50 disabled:opacity-50 transition mt-6"
+                className="w-full px-4 py-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50 transition mt-6"
               >
                 {loading ? "Loading…" : isSignUp ? "Create Account" : "Sign In"}
               </button>
             </form>
 
-            <div className="mt-6 pt-6 border-t border-white/10">
-              <p className="text-center text-teal-100 text-sm">
+            <div className="mt-6 pt-6 border-t border-stone-100">
+              <p className="text-center text-stone-500 text-sm">
                 {isSignUp ? "Already have an account? " : "New to Cabintree? "}
                 <button
                   onClick={() => { setIsSignUp(!isSignUp); setError(""); }}
-                  className="font-semibold text-white hover:text-teal-50 transition"
+                  className="font-semibold text-teal-700 hover:text-teal-800 transition"
                 >
                   {isSignUp ? "Sign in here" : "Create one"}
                 </button>
               </p>
             </div>
 
-            <p className="text-center text-teal-200 text-xs mt-4">
+            <p className="text-center text-stone-400 text-xs mt-4">
               Your data is encrypted and secure. We never sell your information.
             </p>
           </div>
@@ -524,17 +565,155 @@ function AuthScreen({ onAuth }) {
   );
 }
 
+/* ---------- Household switcher & invites ---------- */
+function HouseholdSwitcher({ memberships, activeHouseholdId, onSwitch, onCreateFamily, onLeave }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [familyName, setFamilyName] = useState("");
+  const [seedData, setSeedData] = useState(true);
+  const [inviteFor, setInviteFor] = useState(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteError, setInviteError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const active = memberships.find((m) => m.household_id === activeHouseholdId);
+  const activeType = active?.households?.type || "personal";
+
+  const handleCreate = async () => {
+    setBusy(true);
+    try {
+      await onCreateFamily(familyName.trim() || "Our Household", seedData);
+      setCreating(false);
+      setFamilyName("");
+    } catch (e) {
+      setInviteError(e.message || "Couldn't create household");
+    }
+    setBusy(false);
+  };
+
+  const handleInvite = async (householdId) => {
+    if (!inviteEmail.trim()) return;
+    setBusy(true);
+    setInviteError("");
+    try {
+      const { data: token, error } = await supabase.rpc("create_invite", { p_household: householdId, p_email: inviteEmail.trim() });
+      if (error) throw error;
+      setInviteLink(`${window.location.origin}${window.location.pathname}?invite=${token}`);
+    } catch (e) {
+      setInviteError(e.message || "Couldn't create invite");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-xs font-medium text-stone-700 transition">
+        {activeType === "family" ? <Users size={12} /> : <User size={12} />}
+        <span className="hidden sm:inline">{active?.households?.name || "Personal"}</span>
+        <ChevronDown size={12} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl border border-stone-200 shadow-lg p-3 z-20 text-left">
+          <div className="text-xs font-medium text-stone-400 px-1 mb-1.5">Your households</div>
+          <div className="space-y-1 mb-2">
+            {memberships.map((m) => (
+              <div key={m.household_id} className={`rounded-lg px-2.5 py-2 ${m.household_id === activeHouseholdId ? "bg-teal-50" : "hover:bg-stone-50"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <button onClick={() => onSwitch(m.household_id)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                    {m.households?.type === "family" ? <Users size={14} className="text-teal-600 shrink-0" /> : <User size={14} className="text-stone-400 shrink-0" />}
+                    <span className={`text-sm truncate ${m.household_id === activeHouseholdId ? "font-medium text-teal-800" : "text-stone-700"}`}>{m.households?.name}</span>
+                  </button>
+                  {m.households?.type === "family" && (
+                    <button onClick={() => { setInviteFor(m.household_id); setInviteLink(""); setInviteError(""); }} className="text-xs text-teal-700 hover:underline shrink-0">Invite</button>
+                  )}
+                </div>
+                {inviteFor === m.household_id && (
+                  <div className="mt-2 pt-2 border-t border-stone-100 space-y-2">
+                    {inviteLink ? (
+                      <div className="space-y-1.5">
+                        <p className="text-xs text-stone-500">Share this link — it works once the invited person signs in with that email.</p>
+                        <div className="flex gap-1.5">
+                          <input readOnly value={inviteLink} className="flex-1 px-2 py-1 text-xs border border-stone-300 rounded-lg bg-stone-50 truncate" onFocus={(e) => e.target.select()} />
+                          <button onClick={() => navigator.clipboard?.writeText(inviteLink)} className="text-xs bg-teal-600 text-white px-2.5 rounded-lg hover:bg-teal-700 shrink-0">Copy</button>
+                        </div>
+                        <a href={`mailto:${inviteEmail}?subject=${encodeURIComponent("Join our household on Cabintree")}&body=${encodeURIComponent(`Here's the link to join our shared household on Cabintree: ${inviteLink}`)}`} className="text-xs text-teal-700 hover:underline">Send via email</a>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1.5">
+                        <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} type="email" placeholder="partner@email.com" className="flex-1 px-2 py-1 text-xs border border-stone-300 rounded-lg" />
+                        <button disabled={busy} onClick={() => handleInvite(m.household_id)} className="text-xs bg-teal-600 text-white px-2.5 rounded-lg hover:bg-teal-700 disabled:opacity-50 shrink-0">Send</button>
+                      </div>
+                    )}
+                    {inviteError && <p className="text-xs text-rose-600">{inviteError}</p>}
+                    {m.role !== "owner" || m.households?.type === "family" ? (
+                      <button onClick={() => onLeave(m.household_id)} className="text-xs text-stone-400 hover:text-rose-600">Leave this household</button>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t border-stone-100 pt-2">
+            {creating ? (
+              <div className="space-y-2 px-1">
+                <input value={familyName} onChange={(e) => setFamilyName(e.target.value)} placeholder="e.g. The Smith Family" className="w-full px-2 py-1.5 text-sm border border-stone-300 rounded-lg" />
+                <label className="flex items-center gap-1.5 text-xs text-stone-500">
+                  <input type="checkbox" checked={seedData} onChange={(e) => setSeedData(e.target.checked)} /> Copy my current data into it
+                </label>
+                <div className="flex gap-2">
+                  <button disabled={busy} onClick={handleCreate} className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700 disabled:opacity-50">Create</button>
+                  <button onClick={() => setCreating(false)} className="text-xs text-stone-400">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setCreating(true)} className="w-full flex items-center gap-1.5 px-2.5 py-2 text-sm text-teal-700 hover:bg-teal-50 rounded-lg transition">
+                <Plus size={14} /> Create a family household
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [loaded, setLoaded] = useState(false);
-  const [mode, setMode] = useState("personal");
-  const [lastSynced, setLastSynced] = useState(null);
   const [data, setData] = useState(DEFAULTS());
   const [onboard, setOnboard] = useState(false);
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const shared = false; // household switching handled by HouseholdSwitcher in production
+  const [householdId, setHouseholdId] = useState(null);
+  const [memberships, setMemberships] = useState([]);
+  const [inviteBanner, setInviteBanner] = useState(null);
+  const shared = false; // receipt photo cache isn't shared across household members yet
 
+  const loadHouseholdData = async (hid) => {
+    const { data: householdRow } = await supabase.from("household_data").select("data").eq("household_id", hid).maybeSingle();
+    if (householdRow?.data) {
+      setData(applyDefaults(typeof householdRow.data === "string" ? JSON.parse(householdRow.data) : householdRow.data));
+    } else {
+      setData(DEFAULTS());
+    }
+  };
+
+  const loadMemberships = async (userId) => {
+    const { data: rows } = await supabase.from("household_members").select("household_id, role, households(name, type)").eq("user_id", userId);
+    setMemberships(rows || []);
+  };
+
+  const loadUserContext = async (sessionUser) => {
+    const { data: profile } = await supabase.from("profiles").select("active_household_id").eq("id", sessionUser.id).single();
+    if (profile?.active_household_id) {
+      setHouseholdId(profile.active_household_id);
+      await loadHouseholdData(profile.active_household_id);
+      await loadMemberships(sessionUser.id);
+    }
+  };
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -542,10 +721,7 @@ export default function App() {
         const { data: { user: sessionUser } } = await supabase.auth.getUser();
         if (sessionUser) {
           setUser(sessionUser);
-          const { data: financialData } = await supabase.from("user_finance_data").select("data").eq("user_id", sessionUser.id).single();
-          if (financialData?.data) {
-            setData(applyDefaults(typeof financialData.data === "string" ? JSON.parse(financialData.data) : financialData.data));
-          }
+          await loadUserContext(sessionUser);
           try { const o = await window.storage.get(ONBOARD_KEY); if (!o || !o.value) setOnboard(true); } catch (e) { setOnboard(true); }
         }
       } catch (err) {
@@ -561,17 +737,54 @@ export default function App() {
         setUser(session.user);
       } else {
         setUser(null);
+        setHouseholdId(null);
       }
     });
     return () => subscription?.unsubscribe();
   }, []);
 
+  // covers sign-in via the form (same page load, no reload) — checkAuth above only runs once at mount
+  useEffect(() => {
+    if (!user || householdId) return;
+    (async () => {
+      await loadUserContext(user);
+      setLoaded(true);
+    })();
+  }, [user, householdId]);
+
+  // accept a pending household invite from a shared link (?invite=<token>)
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("invite");
+    if (!token) return;
+    if (!user) {
+      setInviteBanner({ status: "pending", token });
+      return;
+    }
+    (async () => {
+      try {
+        const { error } = await supabase.rpc("accept_invite", { p_token: token });
+        if (error) throw error;
+        const { data: profile } = await supabase.from("profiles").select("active_household_id").eq("id", user.id).single();
+        if (profile?.active_household_id) {
+          setHouseholdId(profile.active_household_id);
+          await loadHouseholdData(profile.active_household_id);
+          await loadMemberships(user.id);
+        }
+        setInviteBanner({ status: "accepted" });
+      } catch (err) {
+        setInviteBanner({ status: "error", message: err.message || "Couldn't accept that invite." });
+      } finally {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    })();
+  }, [user]);
+
   // persist working data to Supabase & localStorage
   useEffect(() => {
-    if (!loaded || !user) return;
+    if (!loaded || !user || !householdId) return;
     const t = setTimeout(async () => {
       try {
-        const { error } = await supabase.from("user_finance_data").update({ data: JSON.stringify(data), updated_at: new Date() }).eq("user_id", user.id);
+        const { error } = await supabase.from("household_data").upsert({ household_id: householdId, data: JSON.stringify(data) }, { onConflict: "household_id" });
         if (!error) window.storage.set(shared ? FAMILY_KEY : PERSONAL_KEY, JSON.stringify(data), shared).catch(() => {});
       } catch (e) {
         console.error("Failed to save data to Supabase:", e);
@@ -579,7 +792,7 @@ export default function App() {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [data, loaded, user, shared]);
+  }, [data, loaded, user, householdId]);
 
   // monthly snapshot upsert (freezes prior months, keeps current month live)
   useEffect(() => {
@@ -598,22 +811,30 @@ export default function App() {
     return () => clearTimeout(t);
   }, [data, loaded]);
 
-  const switchMode = async (target) => {
-    window.storage.set(MODE_KEY, target).catch(() => {});
-    setMode(target);
-    try {
-      const res = await window.storage.get(target === "family" ? FAMILY_KEY : PERSONAL_KEY, target === "family");
-      if (res && res.value) setData(applyDefaults(JSON.parse(res.value)));
-      // else: current data seeds the new scope on next save
-    } catch (e) {}
-    if (target === "family") setLastSynced(new Date());
+  const switchHousehold = async (hid) => {
+    if (hid === householdId) return;
+    const { error } = await supabase.rpc("set_active_household", { p_household: hid });
+    if (error) return;
+    setHouseholdId(hid);
+    await loadHouseholdData(hid);
   };
-  const syncNow = async () => {
-    try {
-      const res = await window.storage.get(FAMILY_KEY, true);
-      if (res && res.value) setData(applyDefaults(JSON.parse(res.value)));
-      setLastSynced(new Date());
-    } catch (e) {}
+  const createFamilyHousehold = async (name, seed) => {
+    const { data: hid, error } = await supabase.rpc("create_family_household", { p_name: name, p_seed: seed });
+    if (error) throw error;
+    setHouseholdId(hid);
+    await loadHouseholdData(hid);
+    await loadMemberships(user.id);
+    return hid;
+  };
+  const leaveHousehold = async (hid) => {
+    const { error } = await supabase.rpc("leave_household", { p_household: hid });
+    if (error) throw error;
+    const { data: profile } = await supabase.from("profiles").select("active_household_id").eq("id", user.id).single();
+    if (profile?.active_household_id) {
+      setHouseholdId(profile.active_household_id);
+      await loadHouseholdData(profile.active_household_id);
+    }
+    await loadMemberships(user.id);
   };
 
   const setHH = (patch) => setData((d) => ({ ...d, household: { ...d.household, ...patch } }));
@@ -628,7 +849,7 @@ export default function App() {
   };
 
   if (authLoading) return <div className="p-8 text-stone-500">Loading…</div>;
-  if (!user) return <AuthScreen onAuth={setUser} />;
+  if (!user) return <AuthScreen onAuth={setUser} inviteBanner={inviteBanner?.status === "pending" ? inviteBanner : null} />;
   if (!loaded) return <div className="p-8 text-stone-500">Loading your data…</div>;
 
   const finishOnboarding = (setup) => {
@@ -661,27 +882,21 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-stone-100 text-stone-800">
-      <header className="bg-gradient-to-br from-teal-700 to-teal-600 text-white px-4 sm:px-5 pt-4 sm:pt-5 pb-4 sm:pb-6 rounded-b-3xl shadow-sm">
+    <div className="min-h-screen bg-stone-50 text-stone-800">
+      <header className="bg-white border-b border-stone-200 px-4 sm:px-6 py-3.5 sm:py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Logo size={36} className="sm:w-11 sm:h-11" />
-            <div>
-              <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Cabintree</h1>
-              <p className="text-teal-100 text-xs mt-0.5 hidden sm:block">Grow your household finances</p>
-            </div>
+          <div className="flex items-center gap-2.5">
+            <Logo size={32} tone="brand" />
+            <span className="text-base sm:text-lg font-semibold text-stone-900 tracking-tight">Cabintree</span>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex bg-teal-800/40 rounded-full p-0.5 text-xs">
-              <span className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-white text-teal-700 font-medium"><User size={11} /> <span className="hidden sm:inline">Personal</span></span>
-              <span className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-teal-100"><Users size={11} /> <span className="hidden sm:inline">Family</span></span>
-            </div>
-            <button onClick={handleSignOut} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg bg-teal-800/40 hover:bg-teal-800/60 text-white text-xs sm:text-sm transition"><LogOut size={14} /> <span className="hidden sm:inline">Sign out</span></button>
+            <HouseholdSwitcher memberships={memberships} activeHouseholdId={householdId} onSwitch={switchHousehold} onCreateFamily={createFamilyHousehold} onLeave={leaveHousehold} />
+            <button onClick={handleSignOut} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 text-xs sm:text-sm transition"><LogOut size={14} /> <span className="hidden sm:inline">Sign out</span></button>
           </div>
         </div>
       </header>
 
-      <nav className="flex overflow-x-auto bg-white border-b border-stone-200 px-1 sticky top-0 z-10 shadow-sm">
+      <nav className="flex overflow-x-auto bg-white border-b border-stone-200 px-1 sticky top-0 z-10">
         {tabs.map((t) => {
           const Icon = t.icon;
           return (
@@ -694,10 +909,11 @@ export default function App() {
         })}
       </nav>
 
-      {shared && (
+      {inviteBanner && inviteBanner.status !== "pending" && (
         <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
-          <div className="bg-teal-50 border border-teal-200 rounded-xl px-3 py-2 text-xs text-teal-800 flex items-center gap-2">
-            <Users size={14} /> Shared family account — you and your partner edit the same data. Tap Sync to pull their latest changes (most recent save wins).
+          <div className={`rounded-xl px-3 py-2 text-xs flex items-center justify-between gap-2 border ${inviteBanner.status === "accepted" ? "bg-teal-50 border-teal-200 text-teal-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
+            <span className="flex items-center gap-2"><Users size={14} /> {inviteBanner.status === "accepted" ? "You've joined the shared household." : inviteBanner.message}</span>
+            <button onClick={() => setInviteBanner(null)} className="opacity-60 hover:opacity-100">✕</button>
           </div>
         </div>
       )}
@@ -732,11 +948,51 @@ function NumberField({ label, value, onChange, prefix = "$", className = "" }) {
     </label>
   );
 }
-function TextField({ label, value, onChange, placeholder = "", type = "text", className = "" }) {
+function TextField({ label, value, onChange, placeholder = "", type = "text", required = false, className = "" }) {
   return (
     <label className={`block ${className}`}>
       <span className="text-xs text-stone-500">{label}</span>
-      <input type={type} value={value || ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white outline-none focus:ring-2 focus:ring-teal-500" />
+      <input type={type} value={value || ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} required={required} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white outline-none focus:ring-2 focus:ring-teal-500" />
+    </label>
+  );
+}
+function CategorySelect({ label = "Category", value, categories, onChange, onAddCategory, emptyLabel, className = "" }) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const opts = value && !categories.includes(value) ? [...categories, value] : categories;
+  const commit = () => {
+    const c = draft.trim();
+    if (c) { onAddCategory(c); onChange(c); }
+    setDraft(""); setAdding(false);
+  };
+  if (adding) {
+    return (
+      <label className={`block ${className}`}>
+        <span className="text-xs text-stone-500">{label}</span>
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(""); setAdding(false); } }}
+          placeholder="New category"
+          className="w-full mt-0.5 px-2 py-1.5 text-sm border border-teal-400 rounded-lg bg-white outline-none focus:ring-2 focus:ring-teal-500"
+        />
+      </label>
+    );
+  }
+  return (
+    <label className={`block ${className}`}>
+      <span className="text-xs text-stone-500">{label}</span>
+      <select
+        value={value || ""}
+        onChange={(e) => { if (e.target.value === "__other__") setAdding(true); else onChange(e.target.value); }}
+        className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"
+      >
+        {emptyLabel != null && <option value="">{emptyLabel}</option>}
+        {opts.map((c) => <option key={c}>{c}</option>)}
+        <option value="__other__">Other…</option>
+      </select>
     </label>
   );
 }
@@ -939,13 +1195,43 @@ function Dashboard({ data, setData }) {
   const goalsTarget = (data.goals || []).reduce((s, g) => s + num(g.target), 0);
   const goalsSaved = (data.goals || []).reduce((s, g) => s + num(g.saved), 0);
 
+  // tips & tricks
+  const monthlyBurn = mortgagePay + carPay + debtPay + billsMonthly;
+  const liquidCash = num(data.household.cash) + (data.household.accounts || []).reduce((s, a) => s + num(a.balance), 0);
+  const emergencyTarget = monthlyBurn * 3;
+  const tfsaRoomLeft = num(data.investments?.tfsa?.room) - contribInYear(data.investments?.tfsa?.contributions, data.taxYear);
+  const rrspRoomLeft = num(data.investments?.rrsp?.room) - contribInYear(data.investments?.rrsp?.contributions, data.taxYear);
+  if (monthlyBurn > 0 && liquidCash > emergencyTarget + 5000 && (tfsaRoomLeft > 0 || rrspRoomLeft > 0)) {
+    const room = Math.max(tfsaRoomLeft, rrspRoomLeft);
+    const excess = liquidCash - emergencyTarget;
+    insights.push({ tone: "good", text: `You have ${fmt(excess)} in cash beyond a 3-month expense buffer — with ${fmt(room)} of ${tfsaRoomLeft >= rrspRoomLeft ? "TFSA" : "RRSP"} room available, there may be room to invest it.` });
+  }
+  const highRateDebt = (data.debts || []).find((x) => num(x.rate) > 10 && num(x.balance) > 0);
+  if (highRateDebt && liquidCash > monthlyBurn + 1000) {
+    insights.push({ tone: "warn", text: `${highRateDebt.name || "A debt"} is charging ${num(highRateDebt.rate)}% interest while you're holding ${fmt(liquidCash)} in cash — paying it down could save more than most savings accounts earn.` });
+  }
+  (data.goals || []).forEach((g) => {
+    if (!g.targetDate || !num(g.target)) return;
+    const target = new Date(g.targetDate), now = new Date();
+    const monthsLeft = (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
+    const remaining = num(g.target) - num(g.saved);
+    if (monthsLeft <= 3 && monthsLeft >= 0 && remaining > num(g.target) * 0.1) {
+      insights.push({ tone: "warn", text: `"${g.name || "Your goal"}" is due in ${monthsLeft <= 0 ? "under a month" : `${monthsLeft} month${monthsLeft === 1 ? "" : "s"}`} with ${fmt(remaining)} still to save.` });
+    }
+  });
+  if (tot.debt === 0 && tot.investments > 0) insights.push({ tone: "good", text: `You're debt-free with ${fmt(tot.investments)} invested — consider directing more of your monthly cash flow toward investing.` });
+  else if (tot.assets > 0 && tot.debt / tot.assets > 0.8) insights.push({ tone: "warn", text: `Debt makes up ${((tot.debt / tot.assets) * 100).toFixed(0)}% of your assets — a highly leveraged position worth keeping an eye on.` });
+
   const spend = [
     { name: "Mortgages", value: mortgagePay },
     { name: "Car loans", value: carPay },
     { name: "Debt payments", value: debtPay },
   ];
+  const thisMonth = currentMonth();
   const byCat = {};
   (data.bills || []).forEach((b) => { byCat[b.category] = (byCat[b.category] || 0) + billMonthly(b); });
+  (data.receipts || []).filter((r) => (r.date || "").slice(0, 7) === thisMonth).forEach((r) => { byCat[r.category] = (byCat[r.category] || 0) + num(r.amount); });
+  (data.oneTime || []).filter((o) => (o.date || "").slice(0, 7) === thisMonth).forEach((o) => { byCat[o.category] = (byCat[o.category] || 0) + num(o.amount); });
   Object.entries(byCat).forEach(([k, v]) => spend.push({ name: k, value: v }));
   const spendData = spend.filter((s) => s.value > 0);
   const spendTotal = spendData.reduce((s, x) => s + x.value, 0);
@@ -953,19 +1239,19 @@ function Dashboard({ data, setData }) {
   const toneCls = { good: "bg-emerald-50 border-emerald-200 text-emerald-800", warn: "bg-amber-50 border-amber-200 text-amber-800", bad: "bg-rose-50 border-rose-200 text-rose-800" };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Hero */}
-      <div className="bg-gradient-to-br from-teal-600 to-emerald-600 text-white rounded-3xl p-5 shadow-sm">
-        <div className="text-teal-50 text-sm">Net worth</div>
-        <div className="text-4xl font-bold tracking-tight mt-1">{fmt(tot.netWorth)}</div>
+      <div className="bg-stone-900 text-white rounded-3xl p-6 sm:p-7">
+        <div className="text-stone-400 text-sm font-medium">Net worth</div>
+        <div className="text-4xl sm:text-5xl font-semibold tracking-tight mt-1.5">{fmt(tot.netWorth)}</div>
         {delta != null && (
-          <div className={`inline-flex items-center gap-1 mt-2 text-sm px-2 py-0.5 rounded-full ${delta >= 0 ? "bg-white/20" : "bg-rose-900/30"}`}>
+          <div className={`inline-flex items-center gap-1 mt-3 text-sm px-2.5 py-1 rounded-full ${delta >= 0 ? "bg-emerald-500/15 text-emerald-400" : "bg-rose-500/15 text-rose-400"}`}>
             {delta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />} {delta >= 0 ? "+" : "−"}{fmt(Math.abs(delta))} this month
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
-          <div className="bg-white/10 rounded-xl p-2.5"><div className="text-teal-100 text-xs">Assets</div><div className="font-semibold">{fmt(tot.assets)}</div></div>
-          <div className="bg-white/10 rounded-xl p-2.5"><div className="text-teal-100 text-xs">Debt</div><div className="font-semibold">{fmt(tot.debt)}</div></div>
+        <div className="grid grid-cols-2 gap-3 mt-5 text-sm">
+          <div className="bg-white/5 rounded-2xl p-3"><div className="text-stone-400 text-xs">Assets</div><div className="font-semibold text-lg mt-0.5">{fmt(tot.assets)}</div></div>
+          <div className="bg-white/5 rounded-2xl p-3"><div className="text-stone-400 text-xs">Debt</div><div className="font-semibold text-lg mt-0.5">{fmt(tot.debt)}</div></div>
         </div>
       </div>
 
@@ -973,7 +1259,7 @@ function Dashboard({ data, setData }) {
       {insights.length > 0 && (
         <div className="space-y-2">
           {insights.map((i, idx) => (
-            <div key={idx} className={`flex items-start gap-2 text-sm rounded-xl border px-3 py-2 ${toneCls[i.tone]}`}>
+            <div key={idx} className={`flex items-start gap-2.5 text-sm rounded-2xl border px-4 py-3 ${toneCls[i.tone]}`}>
               {i.tone === "good" ? <TrendingUp size={16} className="shrink-0 mt-0.5" /> : <AlertCircle size={16} className="shrink-0 mt-0.5" />}
               <span>{i.text}</span>
             </div>
@@ -1045,7 +1331,7 @@ function Dashboard({ data, setData }) {
         </ChartCard>
 
         <ChartCard title="Monthly spending" hint={spendTotal > 0 ? fmt(spendTotal) + "/mo" : ""}>
-          {spendData.length === 0 ? <Placeholder text="Add bills & payments to see this" /> : (
+          {spendData.length === 0 ? <Placeholder text="Add bills, receipts, or expenses to see this" /> : (
             <div className="flex items-center gap-2">
               <ResponsiveContainer width="55%" height={170}>
                 <PieChart>
@@ -1457,6 +1743,8 @@ function Investments({ data, setData }) {
 
 /* ---------- Debts & Bills ---------- */
 function DebtsBills({ data, setData }) {
+  const cats = data.receiptCategories || [];
+  const addCat = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
   const debts = data.debts || [];
   const addDebt = () => setData((d) => ({ ...d, debts: [...(d.debts || []), { id: uid(), name: "", type: "Credit card", balance: 0, limit: 0, rate: 0, payment: 0 }] }));
   const updDebt = (id, patch) => setData((d) => ({ ...d, debts: d.debts.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
@@ -1513,9 +1801,7 @@ function DebtsBills({ data, setData }) {
           {bills.map((b) => (
             <div key={b.id} className="grid grid-cols-12 gap-2 items-end">
               <TextField label="Bill" value={b.name} onChange={(v) => updBill(b.id, { name: v })} className="col-span-4" />
-              <label className="col-span-3"><span className="text-xs text-stone-500">Category</span>
-                <select value={b.category} onChange={(e) => updBill(b.id, { category: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">{["Phone/Internet", "Utilities", "Insurance", "Subscriptions", "Groceries", "Transportation", "Other"].map((c) => <option key={c}>{c}</option>)}</select>
-              </label>
+              <CategorySelect label="Category" value={b.category} categories={cats} onChange={(v) => updBill(b.id, { category: v })} onAddCategory={addCat} className="col-span-3" />
               <NumberField label="Amount" value={b.amount} onChange={(v) => updBill(b.id, { amount: v })} className="col-span-2" />
               <label className="col-span-2"><span className="text-xs text-stone-500">Freq.</span>
                 <select value={b.frequency} onChange={(e) => updBill(b.id, { frequency: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="monthly">Monthly</option><option value="annual">Annual</option></select>
@@ -1534,9 +1820,7 @@ function DebtsBills({ data, setData }) {
             <div key={o.id} className="grid grid-cols-12 gap-2 items-end">
               <TextField label="Date" type="date" value={o.date} onChange={(v) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, date: v } : x)) }))} className="col-span-3" />
               <TextField label="Description" value={o.description} onChange={(v) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, description: v } : x)) }))} className="col-span-4" />
-              <label className="col-span-2"><span className="text-xs text-stone-500">Category</span>
-                <select value={o.category} onChange={(e) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, category: e.target.value } : x)) }))} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">{["Home", "Medical", "Travel", "Auto", "Gifts", "Other"].map((c) => <option key={c}>{c}</option>)}</select>
-              </label>
+              <CategorySelect label="Category" value={o.category} categories={cats} onChange={(v) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, category: v } : x)) }))} onAddCategory={addCat} className="col-span-2" />
               <NumberField label="Amount" value={o.amount} onChange={(v) => setData((d) => ({ ...d, oneTime: d.oneTime.map((x) => (x.id === o.id ? { ...x, amount: v } : x)) }))} className="col-span-2" />
               <button onClick={() => setData((d) => ({ ...d, oneTime: d.oneTime.filter((x) => x.id !== o.id) }))} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
             </div>
@@ -1632,7 +1916,8 @@ function Receipts({ data, setData, shared }) {
       extract(id, dataUrl);
     } catch (e) {}
   };
-  const addCat = () => { const c = newCat.trim(); if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); setNewCat(""); };
+  const addCatValue = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
+  const addCat = () => { addCatValue(newCat.trim()); setNewCat(""); };
   const delCat = (c) => setData((d) => ({ ...d, receiptCategories: d.receiptCategories.filter((x) => x !== c) }));
   const shown = filter === "All" ? receipts : receipts.filter((r) => r.category === filter);
   const shownTotal = shown.reduce((s, r) => s + num(r.amount), 0);
@@ -1700,7 +1985,7 @@ function Receipts({ data, setData, shared }) {
                     <NumberField label="Amount" value={r.amount} onChange={(v) => updR(r.id, { amount: v })} />
                     <TextField label="Date" type="date" value={r.date} onChange={(v) => updR(r.id, { date: v })} />
                     <TextField label="Time" type="time" value={r.time} onChange={(v) => updR(r.id, { time: v })} />
-                    <label className="block"><span className="text-xs text-stone-500">Category</span><select value={r.category} onChange={(e) => updR(r.id, { category: e.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">{cats.map((c) => <option key={c}>{c}</option>)}</select></label>
+                    <CategorySelect label="Category" value={r.category} categories={cats} onChange={(v) => updR(r.id, { category: v })} onAddCategory={addCatValue} />
                     <label className="block"><span className="text-xs text-stone-500">Apply to</span><select value={r.applyTo || "log"} onChange={(e) => updR(r.id, { applyTo: e.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white"><option value="log">Log only</option><option value="onetime">One-time expense</option>{data.properties.map((p) => <option key={p.id} value={`rental:${p.id}`}>Rental: {p.name}</option>)}</select></label>
                     <TextField label="Description" value={r.description} onChange={(v) => updR(r.id, { description: v })} className="col-span-2" />
                     {(r.applyTo || "").startsWith("rental:") && <p className="col-span-2 text-xs text-teal-700">→ T776 line {receiptLine(r.category)}</p>}
@@ -1829,6 +2114,7 @@ function Budget({ data, setData }) {
   const b = data.budget || { monthlyIncome: 0, envelopes: [] };
   const envs = b.envelopes || [];
   const cats = data.receiptCategories || [];
+  const addCat = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
   const setB = (patch) => setData((d) => ({ ...d, budget: { ...(d.budget || { monthlyIncome: 0, envelopes: [] }), ...patch } }));
   const updEnv = (id, patch) => setB({ envelopes: envs.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
   const addEnv = () => setB({ envelopes: [...envs, { id: uid(), name: "New folder", category: "", budgeted: 0, color: PIE[envs.length % PIE.length], rollover: false, spends: [] }] });
@@ -1900,12 +2186,7 @@ function Budget({ data, setData }) {
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end mb-2">
                 <NumberField label="Monthly budget" value={e.budgeted} onChange={(v) => updEnv(e.id, { budgeted: v })} />
-                <label className="block"><span className="text-xs text-stone-500">Linked receipt category</span>
-                  <select value={e.category || ""} onChange={(ev) => updEnv(e.id, { category: ev.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">
-                    <option value="">— none —</option>
-                    {cats.map((c) => <option key={c}>{c}</option>)}
-                  </select>
-                </label>
+                <CategorySelect label="Linked receipt category" value={e.category || ""} categories={cats} emptyLabel="— none —" onChange={(v) => updEnv(e.id, { category: v })} onAddCategory={addCat} />
                 <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Spent</div><div className="font-medium text-sm">{fmt(spent)}</div></div>
                 <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Remaining</div><div className={`font-medium text-sm ${remaining < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(remaining)}</div></div>
               </div>
@@ -2046,7 +2327,29 @@ function Household({ data, setHH, setData }) {
       <Card>
         <h3 className="font-medium text-stone-700 mb-3">Other assets (for net worth)</h3>
         <div className="grid grid-cols-2 gap-3"><NumberField label="Cash / savings" value={data.household.cash} onChange={(v) => setHH({ cash: v })} /><NumberField label="Other assets" value={data.household.otherAssets} onChange={(v) => setHH({ otherAssets: v })} /></div>
-        <p className="text-xs text-stone-400 mt-2">Investment account values live in the Investments tab and are already counted in net worth.</p>
+        <p className="text-xs text-stone-400 mt-2">Investment account values live in the Investments tab and are already counted in net worth. Use "Cash / savings" for a single rough figure, or list individual accounts below — both are added together.</p>
+      </Card>
+
+      <Card>
+        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Bank accounts</h3><button onClick={() => setHH({ accounts: [...(data.household.accounts || []), { id: uid(), name: "", type: "chequing", balance: 0 }] })} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add account</button></div>
+        {(data.household.accounts || []).length === 0 && <p className="text-sm text-stone-400">Optional — break out individual chequing, savings, or other accounts instead of one lump "Cash / savings" figure above.</p>}
+        <div className="space-y-2">
+          {(data.household.accounts || []).map((a) => (
+            <div key={a.id} className="grid grid-cols-12 gap-2 items-end">
+              <TextField label="Account" placeholder="e.g. TD Chequing" value={a.name} onChange={(v) => setHH({ accounts: data.household.accounts.map((x) => (x.id === a.id ? { ...x, name: v } : x)) })} className="col-span-5" />
+              <label className="col-span-3"><span className="text-xs text-stone-500">Type</span>
+                <select value={a.type} onChange={(e) => setHH({ accounts: data.household.accounts.map((x) => (x.id === a.id ? { ...x, type: e.target.value } : x)) })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">
+                  <option value="chequing">Chequing</option>
+                  <option value="savings">Savings</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <NumberField label="Balance" value={a.balance} onChange={(v) => setHH({ accounts: data.household.accounts.map((x) => (x.id === a.id ? { ...x, balance: v } : x)) })} className="col-span-3" />
+              <button onClick={() => setHH({ accounts: data.household.accounts.filter((x) => x.id !== a.id) })} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+        {(data.household.accounts || []).length > 0 && <p className="text-sm text-stone-600 mt-3 pt-2 border-t border-stone-100">Total: <span className="font-medium">{fmt((data.household.accounts || []).reduce((s, a) => s + num(a.balance), 0))}</span></p>}
       </Card>
 
       <Card>
