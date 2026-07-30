@@ -367,11 +367,25 @@ function AuthScreen({ onAuth, inviteBanner }) {
   const [loading, setLoading] = useState(false);
   const [pendingVerification, setPendingVerification] = useState(false);
   const [resendStatus, setResendStatus] = useState("");
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotStatus, setForgotStatus] = useState("");
+  const [forgotError, setForgotError] = useState("");
 
   const handleResend = async () => {
     setResendStatus("sending");
     const { error: resendError } = await supabase.auth.resend({ type: "signup", email });
     setResendStatus(resendError ? "error" : "sent");
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setForgotStatus("sending");
+    setForgotError("");
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}${window.location.pathname}`,
+    });
+    if (resetError) { setForgotError(resetError.message); setForgotStatus("error"); }
+    else setForgotStatus("sent");
   };
 
   const handleSubmit = async (e) => {
@@ -451,115 +465,318 @@ function AuthScreen({ onAuth, inviteBanner }) {
     );
   }
 
-  const benefits = [
-    { icon: Wallet, title: "Track everything", sub: "Budget, investments & properties in one place" },
-    { icon: FileText, title: "Tax planning built in", sub: "Canadian tax brackets & refund estimates" },
-    { icon: TrendingUp, title: "Build confidence", sub: "Understand your net worth growth over time" },
-    { icon: Building2, title: "Properties made simple", sub: "Track multiple properties & T776 reporting" },
+  if (forgotMode) {
+    return (
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center px-6">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-stone-200 shadow-sm p-8">
+          {forgotStatus === "sent" ? (
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-full bg-teal-50 flex items-center justify-center mx-auto mb-5">
+                <Mail size={26} className="text-teal-600" />
+              </div>
+              <h2 className="text-2xl font-semibold text-stone-900 mb-2">Check your email</h2>
+              <p className="text-stone-500 text-sm mb-1">We sent a password reset link to</p>
+              <p className="font-semibold text-stone-800 mb-6">{email}</p>
+              <button
+                onClick={() => { setForgotMode(false); setForgotStatus(""); setForgotError(""); }}
+                className="text-teal-700 font-semibold text-sm hover:text-teal-800"
+              >
+                ← Back to sign in
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="mb-7">
+                <h2 className="text-xl font-semibold text-stone-900 mb-1.5">Reset your password</h2>
+                <p className="text-stone-400 text-sm">Enter your email and we'll send you a link to set a new password.</p>
+              </div>
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <TextField label="Email" type="email" placeholder="you@example.com" value={email} onChange={setEmail} required />
+                {forgotError && (
+                  <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg p-3">{forgotError}</div>
+                )}
+                <button
+                  type="submit"
+                  disabled={forgotStatus === "sending"}
+                  className="w-full px-4 py-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50 transition mt-2"
+                >
+                  {forgotStatus === "sending" ? "Sending…" : "Send reset link"}
+                </button>
+              </form>
+              <div className="mt-6 pt-6 border-t border-stone-100 text-center">
+                <button onClick={() => { setForgotMode(false); setForgotError(""); }} className="text-stone-400 text-sm hover:text-stone-600 transition">
+                  ← Back to sign in
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const capabilityStrip = [
+    { icon: Home, label: "Dashboard" },
+    { icon: Folder, label: "Budget" },
+    { icon: Receipt, label: "Receipts" },
+    { icon: PiggyBank, label: "Investments" },
+    { icon: Building2, label: "Properties" },
+    { icon: FileText, label: "Tax report" },
+    { icon: Users, label: "Family" },
+  ];
+
+  const capabilities = [
+    { icon: Home, title: "Net worth dashboard", sub: "Track assets, debt, and net worth trends over time, with a monthly spending breakdown and personalized insights." },
+    { icon: Folder, title: "Envelope budgeting", sub: "Give every dollar a job with monthly folders that link straight to your spending, so you always know what's left." },
+    { icon: Receipt, title: "Receipt scanning", sub: "Snap a photo and let built-in OCR pull the merchant, date, and total automatically." },
+    { icon: PiggyBank, title: "RRSP, TFSA, FHSA & RESP", sub: "Track contribution room, deductions, and growth across every registered account you hold." },
+    { icon: Building2, title: "Rental properties", sub: "Manage multiple properties with mortgage tracking and T776 reporting built in." },
+    { icon: FileText, title: "Canadian tax estimates", sub: "See your bracket, projected refund, and a CRA-ready summary organized by category." },
+    { icon: Users, title: "Family sharing", sub: "Invite a partner to a shared household by email — everyone sees the same numbers, kept in sync." },
+    { icon: Target, title: "Savings goals", sub: "Set a target and a date, and see exactly how much to save each month to get there." },
+    { icon: Wallet, title: "Everyday expenses", sub: "Childcare, vehicle payments, and one-off costs — categorized and rolled into your full picture." },
   ];
 
   return (
     <div className="min-h-screen bg-stone-50">
-      <div className="max-w-6xl mx-auto px-6 py-16 lg:py-24 grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-20 items-center">
-
-        {/* Left: Hero & Benefits */}
-        <div className="flex flex-col justify-center">
-          <div className="flex items-center gap-3 mb-6">
-            <Logo size={40} tone="brand" />
-            <span className="text-lg font-semibold text-stone-900 tracking-tight">Cabintree</span>
-          </div>
-
-          <h1 className="text-4xl lg:text-[3.25rem] font-semibold text-stone-900 tracking-tight leading-[1.08] mb-5">
-            Take control of your<br />Canadian finances
-          </h1>
-
-          <p className="text-lg text-stone-500 mb-12 leading-relaxed max-w-md">
-            Whether you're building wealth, tracking rental properties, or preparing for tax season — Cabintree makes it simple. Built by Canadians, for Canadians.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-7 mb-12">
-            {benefits.map((b) => (
-              <div key={b.title} className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
-                  <b.icon size={17} className="text-teal-600" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-stone-800 text-sm">{b.title}</h3>
-                  <p className="text-stone-400 text-xs mt-0.5 leading-relaxed">{b.sub}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-stone-400">
-            <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-600" /> 100% Canadian tax support</span>
-            <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-600" /> Multi-device sync</span>
-            <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-600" /> Privacy-first</span>
-          </div>
+      {/* Hero */}
+      <div className="relative overflow-hidden">
+        <div className="absolute inset-0">
+          <img src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1600&q=80" alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-br from-stone-950/92 via-stone-950/78 to-teal-950/70" />
         </div>
 
-        {/* Right: Sign In / Sign Up Form */}
-        <div>
-          {inviteBanner && (
-            <div className="bg-teal-50 border border-teal-200 text-teal-800 text-sm rounded-2xl p-4 mb-4 flex items-start gap-2">
-              <Users size={16} className="shrink-0 mt-0.5" />
-              <span>You've been invited to a shared household on Cabintree. Sign in or create an account using the email address the invite was sent to, then it'll be accepted automatically.</span>
+        <div className="relative max-w-6xl mx-auto px-6 py-16 lg:py-24 grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-20 items-center">
+          {/* Left: Hero copy */}
+          <div className="flex flex-col justify-center">
+            <div className="flex items-center gap-3 mb-8">
+              <Logo size={36} />
+              <span className="text-lg font-semibold text-white tracking-tight">Cabintree</span>
             </div>
-          )}
-          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-8">
-            <div className="mb-7">
-              <h2 className="text-xl font-semibold text-stone-900 mb-1.5">
-                {isSignUp ? "Create your account" : "Welcome back"}
-              </h2>
-              <p className="text-stone-400 text-sm">
-                {isSignUp
-                  ? "Join Canadians taking control of their finances."
-                  : "Log in to continue managing your wealth."}
+
+            <h1 className="text-4xl lg:text-[3.4rem] font-semibold text-white tracking-tight leading-[1.06] mb-5">
+              Take control of your<br />Canadian finances
+            </h1>
+            <div className="w-14 h-1 bg-teal-400 rounded-full mb-6" />
+
+            <p className="text-lg text-stone-200 mb-10 leading-relaxed max-w-md">
+              Budgeting, investments, rental properties, and tax season — all in one place, built around how Canadians actually manage money.
+            </p>
+
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-stone-300">
+              <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-400" /> 100% Canadian tax support</span>
+              <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-400" /> Multi-device sync</span>
+              <span className="flex items-center gap-1.5"><CheckCircle size={14} className="text-teal-400" /> Privacy-first</span>
+            </div>
+          </div>
+
+          {/* Right: Sign In / Sign Up Form */}
+          <div id="auth-form">
+            {inviteBanner && (
+              <div className="bg-teal-50 border border-teal-200 text-teal-800 text-sm rounded-2xl p-4 mb-4 flex items-start gap-2">
+                <Users size={16} className="shrink-0 mt-0.5" />
+                <span>You've been invited to a shared household on Cabintree. Sign in or create an account using the email address the invite was sent to, then it'll be accepted automatically.</span>
+              </div>
+            )}
+            <div className="bg-white rounded-2xl border border-stone-200 shadow-xl p-8">
+              <div className="mb-7">
+                <h2 className="text-xl font-semibold text-stone-900 mb-1.5">
+                  {isSignUp ? "Create your account" : "Welcome back"}
+                </h2>
+                <p className="text-stone-400 text-sm">
+                  {isSignUp
+                    ? "Join Canadians taking control of their finances."
+                    : "Log in to continue managing your wealth."}
+                </p>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <TextField label="Email" type="email" placeholder="you@example.com" value={email} onChange={setEmail} required />
+                <TextField label="Password" type="password" placeholder="••••••••" value={password} onChange={setPassword} required />
+
+                {!isSignUp && (
+                  <div className="text-right -mt-2">
+                    <button type="button" onClick={() => { setForgotMode(true); setError(""); }} className="text-xs text-teal-700 hover:text-teal-800 hover:underline">
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg p-3">
+                    {error}
+                  </div>
+                )}
+
+                {isSignUp && (
+                  <p className="text-stone-400 text-xs -mt-1">
+                    We'll email you a link to verify your address before you can sign in.
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full px-4 py-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50 transition mt-6"
+                >
+                  {loading ? "Loading…" : isSignUp ? "Create Account" : "Sign In"}
+                </button>
+              </form>
+
+              <div className="mt-6 pt-6 border-t border-stone-100">
+                <p className="text-center text-stone-500 text-sm">
+                  {isSignUp ? "Already have an account? " : "New to Cabintree? "}
+                  <button
+                    onClick={() => { setIsSignUp(!isSignUp); setError(""); }}
+                    className="font-semibold text-teal-700 hover:text-teal-800 transition"
+                  >
+                    {isSignUp ? "Sign in here" : "Create one"}
+                  </button>
+                </p>
+              </div>
+
+              <p className="text-center text-stone-400 text-xs mt-4">
+                Your data is encrypted and secure. We never sell your information.
               </p>
             </div>
+          </div>
+        </div>
+      </div>
 
+      {/* Capability strip */}
+      <div className="bg-stone-900 border-t border-white/10">
+        <div className="max-w-6xl mx-auto px-6 py-5 flex flex-wrap justify-center gap-x-10 gap-y-3">
+          {capabilityStrip.map((c) => (
+            <span key={c.label} className="flex items-center gap-2 text-stone-300 text-sm">
+              <c.icon size={15} className="text-teal-400" /> {c.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Capability grid */}
+      <div className="max-w-6xl mx-auto px-6 py-20">
+        <div className="max-w-2xl mx-auto text-center mb-14">
+          <h2 className="text-3xl font-semibold text-stone-900 tracking-tight mb-4">Everything you need, in one place</h2>
+          <p className="text-stone-500 leading-relaxed">Stop juggling spreadsheets, banking apps, and tax software. Cabintree brings your whole financial picture together.</p>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {capabilities.map((c) => (
+            <div key={c.title} className="bg-white rounded-2xl border border-stone-200 p-6">
+              <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center mb-4">
+                <c.icon size={20} className="text-teal-600" />
+              </div>
+              <h3 className="font-semibold text-stone-800 mb-1.5">{c.title}</h3>
+              <p className="text-stone-500 text-sm leading-relaxed">{c.sub}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Trust / story split */}
+      <div className="bg-stone-100 py-20">
+        <div className="max-w-6xl mx-auto px-6 grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+          <img
+            src="https://images.unsplash.com/photo-1449158743715-0a90ebb6d2d8?w=900&q=80"
+            alt="A quiet cabin in the woods"
+            className="rounded-3xl w-full h-72 lg:h-96 object-cover"
+          />
+          <div>
+            <h2 className="text-3xl font-semibold text-stone-900 tracking-tight mb-5 leading-tight">
+              Built with the calm of a cabin, the growth of a tree
+            </h2>
+            <p className="text-stone-500 leading-relaxed mb-8">
+              Financial wellness shouldn't feel like a second job. Cabintree gives you a quiet, organized home base for your money — one that grows with you, from your first budget to your first rental property.
+            </p>
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <div className="text-2xl font-semibold text-stone-900">10+</div>
+                <div className="text-stone-500 text-sm mt-1">tools in one app</div>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-stone-900">2026</div>
+                <div className="text-stone-500 text-sm mt-1">tax brackets, kept current</div>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-stone-900">100%</div>
+                <div className="text-stone-500 text-sm mt-1">designed for Canadians</div>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-stone-900">Private</div>
+                <div className="text-stone-500 text-sm mt-1">your data, never sold</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Final CTA */}
+      <div className="bg-stone-900 py-16 text-center px-6">
+        <h2 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight mb-4">Ready to take control?</h2>
+        <p className="text-stone-400 mb-8 max-w-md mx-auto">Set up takes about a minute. Change anything later.</p>
+        <a href="#auth-form" className="inline-block px-6 py-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 transition">
+          Get started free
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function ResetPasswordScreen({ onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (password !== confirm) { setError("Passwords don't match."); return; }
+    setLoading(true);
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if (updateError) { setError(updateError.message); return; }
+    setDone(true);
+  };
+
+  return (
+    <div className="min-h-screen bg-stone-50 flex items-center justify-center px-6">
+      <div className="max-w-md w-full bg-white rounded-2xl border border-stone-200 shadow-sm p-8">
+        {done ? (
+          <div className="text-center">
+            <div className="w-14 h-14 rounded-full bg-teal-50 flex items-center justify-center mx-auto mb-5">
+              <CheckCircle size={26} className="text-teal-600" />
+            </div>
+            <h2 className="text-2xl font-semibold text-stone-900 mb-2">Password updated</h2>
+            <p className="text-stone-500 text-sm mb-6">Sign in again with your new password.</p>
+            <button onClick={onDone} className="w-full px-4 py-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 transition">
+              Back to sign in
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="mb-7">
+              <h2 className="text-xl font-semibold text-stone-900 mb-1.5">Set a new password</h2>
+              <p className="text-stone-400 text-sm">Choose a new password for your Cabintree account.</p>
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <TextField label="Email" type="email" placeholder="you@example.com" value={email} onChange={setEmail} required />
-              <TextField label="Password" type="password" placeholder="••••••••" value={password} onChange={setPassword} required />
-
+              <TextField label="New password" type="password" placeholder="••••••••" value={password} onChange={setPassword} required />
+              <TextField label="Confirm new password" type="password" placeholder="••••••••" value={confirm} onChange={setConfirm} required />
               {error && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg p-3">
-                  {error}
-                </div>
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg p-3">{error}</div>
               )}
-
-              {isSignUp && (
-                <p className="text-stone-400 text-xs -mt-1">
-                  We'll email you a link to verify your address before you can sign in.
-                </p>
-              )}
-
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full px-4 py-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50 transition mt-6"
+                className="w-full px-4 py-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50 transition mt-2"
               >
-                {loading ? "Loading…" : isSignUp ? "Create Account" : "Sign In"}
+                {loading ? "Updating…" : "Update password"}
               </button>
             </form>
-
-            <div className="mt-6 pt-6 border-t border-stone-100">
-              <p className="text-center text-stone-500 text-sm">
-                {isSignUp ? "Already have an account? " : "New to Cabintree? "}
-                <button
-                  onClick={() => { setIsSignUp(!isSignUp); setError(""); }}
-                  className="font-semibold text-teal-700 hover:text-teal-800 transition"
-                >
-                  {isSignUp ? "Sign in here" : "Create one"}
-                </button>
-              </p>
-            </div>
-
-            <p className="text-center text-stone-400 text-xs mt-4">
-              Your data is encrypted and secure. We never sell your information.
-            </p>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -690,6 +907,7 @@ export default function App() {
   const [householdId, setHouseholdId] = useState(null);
   const [memberships, setMemberships] = useState([]);
   const [inviteBanner, setInviteBanner] = useState(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const shared = false; // receipt photo cache isn't shared across household members yet
 
   const loadHouseholdData = async (hid) => {
@@ -733,6 +951,7 @@ export default function App() {
     };
     checkAuth();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (_event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
       if (session?.user) {
         setUser(session.user);
       } else {
@@ -848,6 +1067,7 @@ export default function App() {
     setData(DEFAULTS());
   };
 
+  if (passwordRecovery) return <ResetPasswordScreen onDone={async () => { await supabase.auth.signOut(); setPasswordRecovery(false); }} />;
   if (authLoading) return <div className="p-8 text-stone-500">Loading…</div>;
   if (!user) return <AuthScreen onAuth={setUser} inviteBanner={inviteBanner?.status === "pending" ? inviteBanner : null} />;
   if (!loaded) return <div className="p-8 text-stone-500">Loading your data…</div>;
