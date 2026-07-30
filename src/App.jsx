@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock, Mail, CheckCircle } from "lucide-react";
-import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://qjmunwkoaeckcctmadvq.supabase.co";
@@ -141,6 +141,57 @@ function parsePayStubText(text) {
     if (m) { try { const d = new Date(m[1]); if (!isNaN(d.getTime())) { payDate = d.toISOString().slice(0, 10); break; } } catch {} }
   }
   return { gross, taxWithheld, payDate };
+}
+
+/* ---------- File upload → image + text extraction (photos & PDFs) ---------- */
+const compressImage = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 1100; let { width, height } = img;
+      if (width > max || height > max) { const s = max / Math.max(width, height); width = Math.round(width * s); height = Math.round(height * s); }
+      const c = document.createElement("canvas"); c.width = width; c.height = height;
+      c.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(c.toDataURL("image/jpeg", 0.6));
+    };
+    img.onerror = reject; img.src = reader.result;
+  };
+  reader.onerror = reject; reader.readAsDataURL(file);
+});
+
+const ocrImage = async (dataUrl) => {
+  const { default: Tesseract } = await import("tesseract.js");
+  const { data: { text } } = await Tesseract.recognize(dataUrl, "eng", { logger: () => {} });
+  return text;
+};
+
+async function extractFromPdf(file) {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const page = await pdf.getPage(1);
+
+  const textContent = await page.getTextContent();
+  let text = textContent.items.map((it) => it.str + (it.hasEOL ? "\n" : " ")).join("").trim();
+
+  const viewport = page.getViewport({ scale: 1.5 });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width; canvas.height = viewport.height;
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+
+  if (text.length < 20) text = await ocrImage(dataUrl); // scanned PDF, no text layer — fall back to OCR
+  return { dataUrl, text };
+}
+
+async function extractFromFile(file) {
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+  if (isPdf) return extractFromPdf(file);
+  const dataUrl = await compressImage(file);
+  const text = await ocrImage(dataUrl);
+  return { dataUrl, text };
 }
 
 const fmt = (n) => (Number(n) || 0).toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
@@ -962,9 +1013,12 @@ export default function App() {
     return () => subscription?.unsubscribe();
   }, []);
 
-  // covers sign-in via the form (same page load, no reload) — checkAuth above only runs once at mount
+  // covers sign-in via the form (same page load, no reload) — checkAuth above only runs once at mount.
+  // `loaded` is forced false for the duration so the app can't render/edit stale defaults while
+  // household data is still in flight — otherwise a fast edit gets clobbered when the fetch resolves.
   useEffect(() => {
     if (!user || householdId) return;
+    setLoaded(false);
     (async () => {
       await loadUserContext(user);
       setLoaded(true);
@@ -1278,16 +1332,10 @@ function IncomeTracker({ data, setData }) {
     setData((d) => ({ ...d, payTemplates: [...(d.payTemplates || []), { id: uid(), person, name: `Pay template ${n}`, gross: last ? num(last.gross) : 0, taxWithheld: last ? num(last.taxWithheld) : 0 }] }));
   };
 
-  const compress = (file) => new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => { const img = new Image(); img.onload = () => { const max = 1100; let { width, height } = img; if (width > max || height > max) { const s = max / Math.max(width, height); width = Math.round(width * s); height = Math.round(height * s); } const c = document.createElement("canvas"); c.width = width; c.height = height; c.getContext("2d").drawImage(img, 0, 0, width, height); res(c.toDataURL("image/jpeg", 0.6)); }; img.onerror = rej; img.src = r.result; }; r.onerror = rej; r.readAsDataURL(file);
-  });
   const uploadStub = async (person, file) => {
     if (!file) return; setBusy(true);
     try {
-      const dataUrl = await compress(file);
-      const { default: Tesseract } = await import("tesseract.js");
-      const { data: { text } } = await Tesseract.recognize(dataUrl, "eng", { logger: () => {} });
+      const { text } = await extractFromFile(file);
       const { gross, taxWithheld, payDate } = parsePayStubText(text);
       setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: payDate || new Date().toISOString().slice(0, 10), gross, taxWithheld, source: "paystub" }, ...(d.incomeLog || [])] }));
     } catch (e) {}
@@ -1349,7 +1397,7 @@ function IncomeTracker({ data, setData }) {
             <div className="text-xs text-stone-400 mt-1 text-center">So far this year: {fmt(ytd)} earned · {fmt(withheld)} tax withheld{hasOneTime ? ` · incl. ${fmt(oneTimeGross(pp.key))} one-time (not annualized)` : ""}</div>
             <div className="flex flex-wrap gap-3 mt-2 items-center">
               <button onClick={() => addEntry(pp.key)} className="text-xs flex items-center gap-1 text-teal-700"><Plus size={12} /> Log pay</button>
-              <label className="text-xs flex items-center gap-1 text-teal-700 cursor-pointer">{busy ? <Sparkles size={12} className="animate-pulse" /> : <Camera size={12} />} Upload pay stub<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => uploadStub(pp.key, e.target.files[0])} /></label>
+              <label className="text-xs flex items-center gap-1 text-teal-700 cursor-pointer">{busy ? <Sparkles size={12} className="animate-pulse" /> : <Camera size={12} />} Upload pay stub<input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => uploadStub(pp.key, e.target.files[0])} /></label>
               <button onClick={() => saveTemplate(pp.key)} className="text-xs text-stone-500 hover:text-stone-700">Save as template</button>
             </div>
             {/* recurring templates */}
@@ -1718,6 +1766,7 @@ function YearOverview({ data }) {
 /* ---------- Properties ---------- */
 function Properties({ properties, addProperty, updProperty, delProperty }) {
   const [open, setOpen] = useState(null);
+  const chartData = properties.map((p) => ({ name: p.name || "Property", value: num(p.currentValue), mortgage: num(p.mortgage.balance), equity: propEquity(p) }));
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center">
@@ -1725,6 +1774,20 @@ function Properties({ properties, addProperty, updProperty, delProperty }) {
         <button onClick={addProperty} className="flex items-center gap-1 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Plus size={15} /> Add property</button>
       </div>
       {properties.length === 0 && <p className="text-sm text-stone-400">No properties yet. Add your first one above.</p>}
+      {properties.length > 0 && (
+        <ChartCard title="Value vs. mortgage by property">
+          <ResponsiveContainer width="100%" height={Math.max(140, chartData.length * 56)}>
+            <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0eee8" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: "#a8a29e" }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "#57534e" }} width={90} />
+              <Tooltip formatter={(v) => fmt(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Bar dataKey="value" name="Current value" fill="#0d9488" radius={[0, 4, 4, 0]} barSize={14} />
+              <Bar dataKey="mortgage" name="Mortgage balance" fill="#e11d48" radius={[0, 4, 4, 0]} barSize={14} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      )}
       {properties.map((p) => <PropertyCard key={p.id} p={p} open={open === p.id} toggle={() => setOpen(open === p.id ? null : p.id)} upd={(patch) => updProperty(p.id, patch)} del={() => delProperty(p.id)} />)}
     </div>
   );
@@ -1891,6 +1954,14 @@ function Investments({ data, setData }) {
   const delNonreg = (id) => setData((d) => ({ ...d, investments: { ...d.investments, nonreg: d.investments.nonreg.filter((n) => n.id !== id) } }));
   const nonregValue = inv.nonreg.reduce((s, n) => s + num(n.value), 0);
   const nonregGain = inv.nonreg.reduce((s, n) => s + (num(n.value) - num(n.bookCost)), 0);
+  const allocation = [
+    { name: "RRSP", value: num(inv.rrsp.value) },
+    { name: "TFSA", value: num(inv.tfsa.value) },
+    { name: "RESP", value: num(inv.resp.value) },
+    { name: "FHSA", value: num(fhsa.value) },
+    { name: "Non-registered", value: nonregValue },
+  ].filter((a) => a.value > 0);
+  const allocationTotal = allocation.reduce((s, a) => s + a.value, 0);
 
   return (
     <div className="space-y-5">
@@ -1900,6 +1971,29 @@ function Investments({ data, setData }) {
         <Stat label="FHSA deduction" value={fmt(fhsaThisYear)} sub={`${year} · line 20805`} tone="green" />
         <Stat label="TFSA room left" value={fmt(tfsaRemaining)} tone={tfsaRemaining < 0 ? "red" : "slate"} sub={tfsaRemaining < 0 ? "Over-contributed!" : "Available"} />
       </div>
+      <ChartCard title="Account allocation" hint={allocationTotal > 0 ? fmt(allocationTotal) : ""}>
+        {allocation.length === 0 ? <Placeholder text="Add account values to see this" /> : (
+          <div className="flex items-center gap-2">
+            <ResponsiveContainer width="55%" height={170}>
+              <PieChart>
+                <Pie data={allocation} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={70} paddingAngle={2}>
+                  {allocation.map((_, i) => <Cell key={i} fill={PIE[i % PIE.length]} />)}
+                </Pie>
+                <Tooltip formatter={(v) => fmt(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex-1 space-y-1 text-xs">
+              {allocation.map((a, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE[i % PIE.length] }} />
+                  <span className="text-stone-600 flex-1 truncate">{a.name}</span>
+                  <span className="text-stone-500">{fmt(a.value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </ChartCard>
       <Card>
         <h3 className="font-medium text-stone-700 mb-3">RRSP — Retirement Savings</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
@@ -1979,6 +2073,9 @@ function DebtsBills({ data, setData }) {
   const totalDebtPay = debts.reduce((s, x) => s + num(x.payment), 0);
   const monthlyInterest = debts.reduce((s, x) => s + num(x.balance) * (num(x.rate) / 100 / 12), 0);
   const billsMonthly = bills.reduce((s, b) => s + billMonthly(b), 0);
+  const debtByType = {};
+  debts.forEach((x) => { if (num(x.balance) > 0) debtByType[x.type] = (debtByType[x.type] || 0) + num(x.balance); });
+  const debtComposition = Object.entries(debtByType).map(([name, value]) => ({ name, value }));
 
   return (
     <div className="space-y-5">
@@ -1987,6 +2084,29 @@ function DebtsBills({ data, setData }) {
         <Stat label="Monthly payments" value={fmt(totalDebtPay)} />
         <Stat label="Interest / mo" value={fmt(monthlyInterest)} tone="red" />
       </div>
+      {debtComposition.length > 0 && (
+        <ChartCard title="Debt composition" hint={fmt(totalDebt)}>
+          <div className="flex items-center gap-2">
+            <ResponsiveContainer width="55%" height={150}>
+              <PieChart>
+                <Pie data={debtComposition} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={32} outerRadius={60} paddingAngle={2}>
+                  {debtComposition.map((_, i) => <Cell key={i} fill={PIE[(i + 3) % PIE.length]} />)}
+                </Pie>
+                <Tooltip formatter={(v) => fmt(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex-1 space-y-1 text-xs">
+              {debtComposition.map((d, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE[(i + 3) % PIE.length] }} />
+                  <span className="text-stone-600 flex-1 truncate">{d.name}</span>
+                  <span className="text-stone-500">{fmt(d.value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </ChartCard>
+      )}
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Lines of credit & credit cards</h3><button onClick={addDebt} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add debt</button></div>
         {debts.length === 0 && <p className="text-sm text-stone-400">Add lines of credit, credit cards, or other consumer debt.</p>}
@@ -2103,40 +2223,18 @@ function Receipts({ data, setData, shared }) {
     setImages((m) => { const n = { ...m }; delete n[id]; return n; });
     try { await window.storage.delete(`receipt-img:${id}`, shared); } catch (e) {}
   };
-  const compress = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const max = 1100; let { width, height } = img;
-        if (width > max || height > max) { const s = max / Math.max(width, height); width = Math.round(width * s); height = Math.round(height * s); }
-        const c = document.createElement("canvas"); c.width = width; c.height = height;
-        c.getContext("2d").drawImage(img, 0, 0, width, height);
-        resolve(c.toDataURL("image/jpeg", 0.6));
-      };
-      img.onerror = reject; img.src = reader.result;
-    };
-    reader.onerror = reject; reader.readAsDataURL(file);
-  });
-  const extract = async (id, dataUrl) => {
+  const onFile = async (id, file) => {
+    if (!file) return;
     setBusy(id);
     try {
-      const { default: Tesseract } = await import("tesseract.js");
-      const { data: { text } } = await Tesseract.recognize(dataUrl, "eng", { logger: () => {} });
+      const { dataUrl, text } = await extractFromFile(file);
+      setImages((m) => ({ ...m, [id]: dataUrl }));
+      updR(id, { hasImage: true, photoAddedAt: Date.now(), photoExpired: false });
+      await window.storage.set(`receipt-img:${id}`, dataUrl, shared);
       const { amount, date, merchant } = parseReceiptText(text);
       updR(id, { label: merchant, date, amount, category: cats[0] || "Other" });
     } catch (e) {}
     setBusy(null);
-  };
-  const onFile = async (id, file) => {
-    if (!file) return;
-    try {
-      const dataUrl = await compress(file);
-      setImages((m) => ({ ...m, [id]: dataUrl }));
-      updR(id, { hasImage: true, photoAddedAt: Date.now(), photoExpired: false });
-      await window.storage.set(`receipt-img:${id}`, dataUrl, shared);
-      extract(id, dataUrl);
-    } catch (e) {}
   };
   const addCatValue = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
   const addCat = () => { addCatValue(newCat.trim()); setNewCat(""); };
@@ -2162,7 +2260,7 @@ function Receipts({ data, setData, shared }) {
         </Card>
       )}
       <Card className="bg-teal-50 border-teal-200">
-        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap or upload a receipt — OCR reads the merchant, date, and total automatically. Accuracy depends on image clarity; fix anything off or type it in. Set "Apply to" so it counts toward a rental or one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
+        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap a photo or upload a PDF — we read the merchant, date, and total automatically (PDF receipts read their text directly; photos and scanned PDFs use OCR). Accuracy varies; fix anything off or type it in. Set "Apply to" so it counts toward a rental or one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
       </Card>
       {receipts.length > 1 && (
         <div className="flex items-center gap-2"><span className="text-xs text-stone-500">Filter</span>
@@ -2199,8 +2297,8 @@ function Receipts({ data, setData, shared }) {
                   <div className="w-20 shrink-0">
                     {images[r.id]
                       ? <img src={images[r.id]} alt="receipt" className="w-20 h-20 object-cover rounded-lg border border-stone-200" />
-                      : <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-lg cursor-pointer text-stone-400 hover:border-teal-400 hover:text-teal-500"><Camera size={18} /><span className="text-[10px] mt-1">Add photo</span><input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>}
-                    {images[r.id] && !busy && <label className="text-[10px] text-teal-700 cursor-pointer block mt-1 text-center hover:underline">Replace<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>}
+                      : <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-lg cursor-pointer text-stone-400 hover:border-teal-400 hover:text-teal-500"><Camera size={18} /><span className="text-[10px] mt-1 text-center leading-tight">Add photo or PDF</span><input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>}
+                    {images[r.id] && !busy && <label className="text-[10px] text-teal-700 cursor-pointer block mt-1 text-center hover:underline">Replace<input type="file" accept="image/*,application/pdf,.pdf" capture="environment" className="hidden" onChange={(e) => onFile(r.id, e.target.files[0])} /></label>}
                   </div>
                   <div className="flex-1 grid grid-cols-2 gap-2">
                     <TextField label="Label / merchant" value={r.label} onChange={(v) => updR(r.id, { label: v })} />
