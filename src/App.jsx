@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock, Mail, CheckCircle } from "lucide-react";
+import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, Upload, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock, Mail, CheckCircle, Menu, X } from "lucide-react";
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { createClient } from "@supabase/supabase-js";
 import { Capacitor } from "@capacitor/core";
@@ -111,10 +111,31 @@ const PIE = ["#0d9488", "#0891b2", "#f59e0b", "#e11d48", "#8b5cf6", "#10b981", "
 function parseReceiptText(text) {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   let amount = 0;
-  const totalRe = /(?:total|grand total|amount due|balance due)[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = lines[i].match(totalRe);
-    if (m) { amount = parseFloat(m[1].replace(/,/g, "")); break; }
+  // Checked in priority order (most specific/reliable label first) so "Subtotal" never
+  // outranks the real total, and the widest possible set of receipt phrasings is covered.
+  const totalRes = [
+    /grand\s*total[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
+    /amount\s*due[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
+    /balance\s*due[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
+    /total\s*due[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
+    /(?:amount|total)\s*paid[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
+    /you\s*paid[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
+    /total\s*sale[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
+    /purchase\s*total[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
+  ];
+  outer: for (const re of totalRes) {
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = lines[i].match(re);
+      if (m) { amount = parseFloat(m[1].replace(/,/g, "")); break outer; }
+    }
+  }
+  if (!amount) {
+    // bare "total" (but never "subtotal") as a fallback before resorting to the largest dollar figure
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (/subtotal/i.test(lines[i])) continue;
+      const m = lines[i].match(/\btotal\b[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i);
+      if (m) { amount = parseFloat(m[1].replace(/,/g, "")); break; }
+    }
   }
   if (!amount) {
     const all = [...text.matchAll(/\$?\s*([\d,]+\.\d{2})/g)].map((m) => parseFloat(m[1].replace(/,/g, "")));
@@ -128,22 +149,47 @@ function parseReceiptText(text) {
   const merchant = lines.find((l) => l.length > 2 && !/^\d/.test(l)) || lines[0] || "";
   return { amount, date, merchant };
 }
+// Pulls only pay figures out of a pay stub, never personal info (name, SIN, address, employer).
+// Rule-based (regex) only, no AI/OCR-model interpretation of meaning.
 function parsePayStubText(text) {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  let gross = 0, taxWithheld = 0, payDate = "";
-  for (const line of lines) {
-    const m = line.match(/gross(?:\s+(?:pay|earnings|income))?[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i);
-    if (m) { gross = parseFloat(m[1].replace(/,/g, "")); break; }
-  }
-  for (const line of lines) {
-    const m = line.match(/(?:income|federal|fed|provincial|prov)?\s*tax(?:\s+(?:deducted|withheld))?[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i);
-    if (m) { taxWithheld = parseFloat(m[1].replace(/,/g, "")); break; }
-  }
+  const numsOnLine = (line) => [...line.matchAll(/([\d,]+\.\d{1,2}|[\d,]+)/g)].map((m) => parseFloat(m[1].replace(/,/g, "")));
+  const firstNum = (line) => { const n = numsOnLine(line); return n.length ? n[0] : null; };
+  const lastNum = (line) => { const n = numsOnLine(line); return n.length ? n[n.length - 1] : null; };
+  // Current-period fields (gross/taxWithheld) read the FIRST number on their label line and skip
+  // lines that are explicitly YTD-only, so a lone "YTD Gross: 24,691.12" line isn't misread as this
+  // period's pay. Everything else here is a YTD figure by definition, and most stubs print it as a
+  // "current | YTD" pair on one line, so those fields just read the LAST number on the label line
+  // (the only number, when there's just one) rather than requiring the literal word "YTD" nearby.
+  const findAmount = (re, pick, { skipYtdOnlyLines = false, excludeRe = null } = {}) => {
+    for (const line of lines) {
+      if (skipYtdOnlyLines && /ytd|year.to.date/i.test(line)) continue;
+      if (excludeRe && excludeRe.test(line)) continue;
+      if (re.test(line)) { const v = pick(line); if (v != null) return v; }
+    }
+    return 0;
+  };
+
+  const gross = findAmount(/(?:total\s+)?gross(?:\s+(?:pay|earnings|income|wages|salary))?/i, firstNum, { skipYtdOnlyLines: true });
+  const taxWithheld = findAmount(/(?:income|federal|fed|provincial|prov)?\s*tax(?!able)(?:\s+(?:deducted|withheld|withholding))?/i, firstNum, { skipYtdOnlyLines: true, excludeRe: /total\s*tax/i });
+
+  const ytdGross = findAmount(/(?:total\s+)?gross(?:\s+(?:pay|earnings|income|wages|salary))?/i, lastNum);
+  const citTaxableGross = findAmount(/cit\s*taxable\s*gross/i, lastNum);
+  const totalTaxes = findAmount(/total\s*taxes?\b/i, lastNum);
+  const totalDeductions = findAmount(/total\s*deductions?\b/i, lastNum);
+  const netPay = findAmount(/net\s*pay\b/i, lastNum);
+  const hourlyWage = findAmount(/hourly\s*(?:rate|wage)/i, firstNum);
+  const cpp2EE = findAmount(/cpp\s*2[\s-]*ee|2nd?\s*(?:tier\s*)?cpp[\s-]*ee|cpp2[\s-]*ee/i, lastNum);
+  const cppEE = findAmount(/\bcpp[\s-]*ee\b/i, lastNum, { excludeRe: /cpp\s*2|2nd?\s*(?:tier\s*)?cpp/i });
+  const eiEE = findAmount(/\bei[\s-]*ee\b/i, lastNum);
+  const cit = findAmount(/\bcit\b/i, lastNum, { excludeRe: /cit\s*taxable/i });
+
+  let payDate = "";
   for (const re of [/(?:pay\s+date[^\d]*)(\d{4}[-/]\d{1,2}[-/]\d{1,2})/i, /\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b/]) {
     const m = text.match(re);
     if (m) { try { const d = new Date(m[1]); if (!isNaN(d.getTime())) { payDate = d.toISOString().slice(0, 10); break; } } catch {} }
   }
-  return { gross, taxWithheld, payDate };
+  return { gross, taxWithheld, payDate, ytdGross, citTaxableGross, totalTaxes, totalDeductions, netPay, hourlyWage, cit, cppEE, eiEE, cpp2EE };
 }
 
 /* ---------- File upload → image + text extraction (photos & PDFs) ---------- */
@@ -152,7 +198,7 @@ const compressImage = (file) => new Promise((resolve, reject) => {
   reader.onload = () => {
     const img = new Image();
     img.onload = () => {
-      const max = 1100; let { width, height } = img;
+      const max = 1800; let { width, height } = img;
       if (width > max || height > max) { const s = max / Math.max(width, height); width = Math.round(width * s); height = Math.round(height * s); }
       const c = document.createElement("canvas"); c.width = width; c.height = height;
       c.getContext("2d").drawImage(img, 0, 0, width, height);
@@ -185,7 +231,7 @@ async function extractFromPdf(file) {
   await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
   const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
 
-  if (text.length < 20) text = await ocrImage(dataUrl); // scanned PDF, no text layer — fall back to OCR
+  if (text.length < 20) text = await ocrImage(dataUrl); // scanned PDF, no text layer: fall back to OCR
   return { dataUrl, text };
 }
 
@@ -197,9 +243,88 @@ async function extractFromFile(file) {
   return { dataUrl, text };
 }
 
+// Statements are often multiple pages, unlike receipts/pay stubs (page 1 only), so this reads
+// every page's text layer and concatenates them in order.
+async function extractAllPdfText(file) {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    text += textContent.items.map((it) => it.str + (it.hasEOL ? "\n" : " ")).join("") + "\n";
+  }
+  return text.trim();
+}
+
+// Turns "Jul 05" / "07/05/26" / "2026-07-05" style statement dates into ISO, using a year found
+// elsewhere in the statement (e.g. "Statement Date: ...2026...") when the line itself has no year.
+function normalizeStatementDate(str, defaultYear) {
+  let m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+  m = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/);
+  if (m) { let [, mo, da, yr] = m; if (yr.length === 2) yr = "20" + yr; return `${yr}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`; }
+  m = str.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,?\s*(\d{4}))?$/);
+  if (m) {
+    const months = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+    const mo = months[m[1].toLowerCase()];
+    const yr = m[3] || defaultYear;
+    if (mo) return `${yr}-${String(mo).padStart(2, "0")}-${String(m[2]).padStart(2, "0")}`;
+  }
+  return "";
+}
+
+// Line-based scan for "date … description … amount" rows, the common shape of a credit card
+// statement's transaction list. Rule-based only (no AI): a line either looks like a transaction
+// row or it doesn't.
+function parseStatementTransactions(text) {
+  const yearMatch = text.match(/\b(20\d{2})\b/);
+  const defaultYear = yearMatch ? yearMatch[1] : String(new Date().getFullYear());
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const dateRe = /^((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:,?\s*\d{4})?|\d{1,2}[-/]\d{1,2}(?:[-/]\d{2,4})?|\d{4}[-/]\d{1,2}[-/]\d{1,2})\s+(.+)$/i;
+  const amountTailRe = /(-?\$?[\d,]+\.\d{2})\s*(CR)?\s*$/i;
+  const txns = [];
+  for (const line of lines) {
+    const dm = line.match(dateRe);
+    if (!dm) continue;
+    const rest = dm[2];
+    const am = rest.match(amountTailRe);
+    if (!am) continue;
+    let amount = parseFloat(am[1].replace(/[$,]/g, ""));
+    if (am[2] || amount < 0) amount = -Math.abs(amount); // payments/credits: negative
+    const description = rest.slice(0, am.index).trim().replace(/\s{2,}/g, " ");
+    if (!description) continue;
+    const date = normalizeStatementDate(dm[1], defaultYear);
+    txns.push({ id: uid(), date, description, amount: Math.abs(amount), isCredit: amount < 0, include: amount > 0 });
+  }
+  return txns;
+}
+
+// Keyword → category lookup for auto-categorizing statement transactions (e.g. grouping every
+// subscription together). No AI: just a hardcoded merchant-keyword table, falling back to "Other".
+const MERCHANT_CATEGORY_MAP = [
+  { re: /netflix|spotify|disney\+|hulu|amazon prime|apple\.com\/bill|crave|youtube premium|xbox game pass|playstation plus|audible|icloud/i, category: "Subscriptions" },
+  { re: /walmart|superstore|save.?on.?foods|safeway|sobeys|no frills|costco|loblaws|metro|iga|food basics|freshco/i, category: "Groceries" },
+  { re: /starbucks|tim hortons|mcdonald|wendy|subway|pizza|sushi|doordash|uber eats|skip ?the ?dishes|restaurant|cafe/i, category: "Dining" },
+  { re: /uber(?!\s*eats)|lyft|petro-?canada|shell|esso|chevron|husky|parking|transit|translink|go transit|taxi/i, category: "Transportation" },
+  { re: /hydro|utilities|water bill|gas bill|enbridge|fortisbc|epcor/i, category: "Utilities" },
+  { re: /rogers|bell canada|telus|freedom mobile|fido|koodo|virgin mobile|shaw/i, category: "Phone/Internet" },
+  { re: /shoppers drug mart|pharmacy|dentist|clinic|physio|london drugs/i, category: "Health" },
+  { re: /cineplex|ticketmaster|steam|playstation store|indigo|chapters/i, category: "Entertainment" },
+  { re: /airbnb|expedia|air canada|westjet|marriott|hotel|hilton/i, category: "Travel" },
+  { re: /home depot|rona|canadian tire|ikea|lowe/i, category: "Home / Repairs" },
+];
+function categorizeTransaction(description, categories) {
+  const hit = MERCHANT_CATEGORY_MAP.find((m) => m.re.test(description));
+  if (hit && categories.includes(hit.category)) return hit.category;
+  return categories.includes("Other") ? "Other" : categories[0] || "Other";
+}
+
 const isNative = () => Capacitor.isNativePlatform();
 
-// Native camera/photo-library capture (iOS/Android app only) — returns null if the user cancels.
+// Native camera/photo-library capture (iOS/Android app only). Returns null if the user cancels.
 async function extractFromNativeCamera() {
   try {
     const photo = await CapCamera.getPhoto({
@@ -257,7 +382,15 @@ const propEquity = (p) => num(p.currentValue) - num(p.mortgage.balance);
 const propAnnualInterestEstimate = (p) => num(p.mortgage.balance) * (num(p.mortgage.rate) / 100);
 const monthlyRent = (p) => (p.tenants || []).reduce((s, t) => s + num(t.rent), 0);
 const repairsByYear = (p, year, kind) => (p.repairs || []).filter((r) => r.kind === kind && (!year || (r.date || "").slice(0, 4) === String(year)));
-const billMonthly = (b) => (b.frequency === "annual" ? num(b.amount) / 12 : num(b.amount));
+const billMonthly = (b) => {
+  const amt = num(b.amount);
+  switch (b.frequency) {
+    case "weekly": return (amt * 52) / 12;
+    case "biannual": return amt / 6;
+    case "annual": return amt / 12;
+    default: return amt; // monthly
+  }
+};
 const contribInYear = (list, year) => (list || []).filter((c) => (c.date || "").slice(0, 4) === String(year)).reduce((s, c) => s + num(c.amount), 0);
 function investTotal(inv) {
   if (!inv) return 0;
@@ -362,7 +495,7 @@ function Onboarding({ onFinish }) {
             <div className="text-center">
               <div className="flex justify-center mb-4"><Logo size={72} /></div>
               <h1 className="text-3xl font-bold">Welcome to Cabintree</h1>
-              <p className="text-teal-100 mt-3 leading-relaxed">The Canadian household budgeting app that also handles your rental properties and taxes. Let's set things up — takes about a minute, and you can change anything later.</p>
+              <p className="text-teal-100 mt-3 leading-relaxed">The Canadian household budgeting app that also handles your rental properties and taxes. Let's set things up: takes about a minute, and you can change anything later.</p>
             </div>
           )}
           {step === 1 && (
@@ -391,7 +524,7 @@ function Onboarding({ onFinish }) {
           {step === 3 && (
             <div>
               <h2 className="text-2xl font-semibold mb-1">What should we track?</h2>
-              <p className="text-teal-100 text-sm mb-5">Tap any that apply — we'll set up the right sections.</p>
+              <p className="text-teal-100 text-sm mb-5">Tap any that apply and we'll set up the right sections.</p>
               <div className="space-y-2">
                 <Choice active={s.hasRental} onClick={() => set({ hasRental: !s.hasRental })} title="🏠 Rental property" sub="T776 tax tracking, tenants, mortgage & equity" />
                 <Choice active={s.hasKid} onClick={() => set({ hasKid: !s.hasKid })} title="👶 Childcare / kids" sub="Childcare deduction & education savings" />
@@ -409,12 +542,12 @@ function Onboarding({ onFinish }) {
               <h2 className="text-2xl font-semibold mb-3">You're all set, {s.p1Name || "friend"}! 🎉</h2>
               <p className="text-teal-100 text-sm mb-4 leading-relaxed">Here's how to make the most of Cabintree:</p>
               <div className="space-y-2.5 text-sm">
-                <div className="bg-white/10 rounded-xl p-3"><strong>📊 Dashboard</strong> — your net worth, trends, and a live tax-bracket bar as you log pay.</div>
-                <div className="bg-white/10 rounded-xl p-3"><strong>🧾 Receipts</strong> — snap a photo and we read the details automatically.</div>
-                <div className="bg-white/10 rounded-xl p-3"><strong>📁 Budget</strong> — give every dollar a job with monthly folders.</div>
-                <div className="bg-white/10 rounded-xl p-3"><strong>📋 Tax Report</strong> — a robust refund estimate for your province, any year.</div>
+                <div className="bg-white/10 rounded-xl p-3"><strong>📊 Dashboard:</strong> your net worth, trends, and a live tax-bracket bar as you log pay.</div>
+                <div className="bg-white/10 rounded-xl p-3"><strong>🧾 Receipts:</strong> snap a photo and we read the details automatically.</div>
+                <div className="bg-white/10 rounded-xl p-3"><strong>📁 Budget:</strong> give every dollar a job with monthly folders.</div>
+                <div className="bg-white/10 rounded-xl p-3"><strong>📋 Tax Report:</strong> a robust refund estimate for your province, any year.</div>
               </div>
-              <p className="text-teal-100 text-xs mt-4">Everything saves privately on your device. Fill things in as you go — there's no rush.</p>
+              <p className="text-teal-100 text-xs mt-4">Everything saves privately on your device. Fill things in as you go, there's no rush.</p>
             </div>
           )}
         </div>
@@ -472,7 +605,7 @@ function AuthScreen({ onAuth, inviteBanner }) {
         const { data: authData, error: signUpError } = await supabase.auth.signUp({ email, password });
         if (signUpError) throw signUpError;
         if (authData?.session) {
-          // email confirmation is disabled on this project — session is issued immediately
+          // email confirmation is disabled on this project, so a session is issued immediately
           onAuth(authData.user);
         } else {
           // confirmation required: no session yet, don't let them into the app
@@ -515,7 +648,7 @@ function AuthScreen({ onAuth, inviteBanner }) {
 
           {resendStatus === "sent" ? (
             <p className="text-emerald-600 text-sm flex items-center justify-center gap-2 mb-2">
-              <CheckCircle size={16} /> Email resent — check your inbox (and spam folder).
+              <CheckCircle size={16} /> Email resent. Check your inbox (and spam folder).
             </p>
           ) : (
             <button
@@ -607,9 +740,9 @@ function AuthScreen({ onAuth, inviteBanner }) {
     { icon: PiggyBank, title: "RRSP, TFSA, FHSA & RESP", sub: "Track contribution room, deductions, and growth across every registered account you hold." },
     { icon: Building2, title: "Rental properties", sub: "Manage multiple properties with mortgage tracking and T776 reporting built in." },
     { icon: FileText, title: "Canadian tax estimates", sub: "See your bracket, projected refund, and a CRA-ready summary organized by category." },
-    { icon: Users, title: "Family sharing", sub: "Invite a partner to a shared household by email — everyone sees the same numbers, kept in sync." },
+    { icon: Users, title: "Family sharing", sub: "Invite a partner to a shared household by email; everyone sees the same numbers, kept in sync." },
     { icon: Target, title: "Savings goals", sub: "Set a target and a date, and see exactly how much to save each month to get there." },
-    { icon: Wallet, title: "Everyday expenses", sub: "Childcare, vehicle payments, and one-off costs — categorized and rolled into your full picture." },
+    { icon: Wallet, title: "Everyday expenses", sub: "Childcare, vehicle payments, and one-off costs, categorized and rolled into your full picture." },
   ];
 
   return (
@@ -635,7 +768,7 @@ function AuthScreen({ onAuth, inviteBanner }) {
             <div className="w-14 h-1 bg-teal-400 rounded-full mb-6" />
 
             <p className="text-lg text-stone-200 mb-10 leading-relaxed max-w-md">
-              Budgeting, investments, rental properties, and tax season — all in one place, built around how Canadians actually manage money.
+              Budgeting, investments, rental properties, and tax season, all in one place, built around how Canadians actually manage money.
             </p>
 
             <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-stone-300">
@@ -761,7 +894,7 @@ function AuthScreen({ onAuth, inviteBanner }) {
               Built with the calm of a cabin, the growth of a tree
             </h2>
             <p className="text-stone-500 leading-relaxed mb-8">
-              Financial wellness shouldn't feel like a second job. Cabintree gives you a quiet, organized home base for your money — one that grows with you, from your first budget to your first rental property.
+              Financial wellness shouldn't feel like a second job. Cabintree gives you a quiet, organized home base for your money: one that grows with you, from your first budget to your first rental property.
             </p>
             <div className="grid grid-cols-2 gap-6">
               <div>
@@ -858,7 +991,7 @@ function ResetPasswordScreen({ onDone }) {
 }
 
 /* ---------- Household switcher & invites ---------- */
-function HouseholdSwitcher({ memberships, activeHouseholdId, onSwitch, onCreateFamily, onLeave }) {
+function HouseholdSwitcher({ memberships, activeHouseholdId, onSwitch, onCreateFamily, onLeave, openUpward = false }) {
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [familyName, setFamilyName] = useState("");
@@ -900,14 +1033,16 @@ function HouseholdSwitcher({ memberships, activeHouseholdId, onSwitch, onCreateF
 
   return (
     <div className="relative">
-      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-xs font-medium text-stone-700 transition">
-        {activeType === "family" ? <Users size={12} /> : <User size={12} />}
-        <span className="hidden sm:inline">{active?.households?.name || "Personal"}</span>
+      <button onClick={() => setOpen(!open)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-xs font-medium text-stone-700 transition ${openUpward ? "w-full justify-between" : ""}`}>
+        <span className="flex items-center gap-1.5">
+          {activeType === "family" ? <Users size={12} /> : <User size={12} />}
+          <span className={openUpward ? "" : "hidden sm:inline"}>{active?.households?.name || "Personal"}</span>
+        </span>
         <ChevronDown size={12} />
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl border border-stone-200 shadow-lg p-3 z-20 text-left">
+        <div className={`absolute w-80 max-w-[calc(100vw-2rem)] bg-white rounded-2xl border border-stone-200 shadow-lg p-3 z-20 text-left ${openUpward ? "bottom-full mb-2 left-0" : "right-0 mt-2"}`}>
           <div className="text-xs font-medium text-stone-400 px-1 mb-1.5">Your households</div>
           <div className="space-y-1 mb-2">
             {memberships.map((m) => (
@@ -925,7 +1060,7 @@ function HouseholdSwitcher({ memberships, activeHouseholdId, onSwitch, onCreateF
                   <div className="mt-2 pt-2 border-t border-stone-100 space-y-2">
                     {inviteLink ? (
                       <div className="space-y-1.5">
-                        <p className="text-xs text-stone-500">Share this link — it works once the invited person signs in with that email.</p>
+                        <p className="text-xs text-stone-500">Share this link. It works once the invited person signs in with that email.</p>
                         <div className="flex gap-1.5">
                           <input readOnly value={inviteLink} className="flex-1 px-2 py-1 text-xs border border-stone-300 rounded-lg bg-stone-50 truncate" onFocus={(e) => e.target.select()} />
                           <button onClick={() => navigator.clipboard?.writeText(inviteLink)} className="text-xs bg-teal-600 text-white px-2.5 rounded-lg hover:bg-teal-700 shrink-0">Copy</button>
@@ -983,6 +1118,8 @@ export default function App() {
   const [memberships, setMemberships] = useState([]);
   const [inviteBanner, setInviteBanner] = useState(null);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);
   const shared = false; // receipt photo cache isn't shared across household members yet
 
   const loadHouseholdData = async (hid) => {
@@ -1037,9 +1174,9 @@ export default function App() {
     return () => subscription?.unsubscribe();
   }, []);
 
-  // covers sign-in via the form (same page load, no reload) — checkAuth above only runs once at mount.
+  // covers sign-in via the form (same page load, no reload); checkAuth above only runs once at mount.
   // `loaded` is forced false for the duration so the app can't render/edit stale defaults while
-  // household data is still in flight — otherwise a fast edit gets clobbered when the fetch resolves.
+  // household data is still in flight, otherwise a fast edit gets clobbered when the fetch resolves.
   useEffect(() => {
     if (!user || householdId) return;
     setLoaded(false);
@@ -1099,7 +1236,10 @@ export default function App() {
     const t = setTimeout(async () => {
       try {
         const { error } = await supabase.from("household_data").upsert({ household_id: householdId, data: JSON.stringify(data) }, { onConflict: "household_id" });
-        if (!error) window.storage.set(shared ? FAMILY_KEY : PERSONAL_KEY, JSON.stringify(data), shared).catch(() => {});
+        if (!error) {
+          window.storage.set(shared ? FAMILY_KEY : PERSONAL_KEY, JSON.stringify(data), shared).catch(() => {});
+          setSavedAt(Date.now());
+        }
       } catch (e) {
         console.error("Failed to save data to Supabase:", e);
         window.storage.set(shared ? FAMILY_KEY : PERSONAL_KEY, JSON.stringify(data), shared).catch(() => {});
@@ -1107,6 +1247,13 @@ export default function App() {
     }, 400);
     return () => clearTimeout(t);
   }, [data, loaded, user, householdId]);
+
+  // clear the "Saved" toast a couple seconds after it appears
+  useEffect(() => {
+    if (!savedAt) return;
+    const t = setTimeout(() => setSavedAt(0), 1800);
+    return () => clearTimeout(t);
+  }, [savedAt]);
 
   // monthly snapshot upsert (freezes prior months, keeps current month live)
   useEffect(() => {
@@ -1196,59 +1343,98 @@ export default function App() {
     { id: "tax", label: "Tax Report", short: "Tax", icon: FileText },
   ];
 
+  const navButton = (t, closeOnClick) => {
+    const Icon = t.icon;
+    return (
+      <button
+        key={t.id}
+        onClick={() => { setTab(t.id); if (closeOnClick) setSidebarOpen(false); }}
+        className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm transition-colors ${tab === t.id ? "bg-teal-50 text-teal-700 font-medium" : "text-stone-500 hover:bg-stone-50 hover:text-stone-700"}`}
+      >
+        <Icon size={18} />
+        <span>{t.label}</span>
+      </button>
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-800">
-      <header className="bg-white border-b border-stone-200 px-4 sm:px-6 py-3.5 sm:py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <Logo size={32} tone="brand" />
-            <span className="text-base sm:text-lg font-semibold text-stone-900 tracking-tight">Cabintree</span>
+    <div className="min-h-screen bg-stone-50 text-stone-800 lg:flex">
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 bg-white border-r border-stone-200 h-screen sticky top-0">
+        <div className="flex items-center gap-2.5 px-5 py-5">
+          <Logo size={32} tone="brand" />
+          <span className="text-lg font-semibold text-stone-900 tracking-tight">Cabintree</span>
+        </div>
+        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
+          {tabs.map((t) => navButton(t, false))}
+        </nav>
+        <div className="border-t border-stone-200 p-3 space-y-2">
+          <HouseholdSwitcher memberships={memberships} activeHouseholdId={householdId} onSwitch={switchHousehold} onCreateFamily={createFamilyHousehold} onLeave={leaveHousehold} openUpward />
+          <button onClick={handleSignOut} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 text-xs transition"><LogOut size={14} /> Sign out</button>
+        </div>
+      </aside>
+
+      {/* Mobile top bar */}
+      <div className="lg:hidden sticky top-0 z-20 bg-white border-b border-stone-200 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <Logo size={28} tone="brand" />
+          <span className="text-base font-semibold text-stone-900 tracking-tight">Cabintree</span>
+        </div>
+        <button onClick={() => setSidebarOpen(true)} aria-label="Open menu" className="p-2 rounded-lg hover:bg-stone-100 text-stone-600"><Menu size={22} /></button>
+      </div>
+
+      {/* Mobile drawer */}
+      <div className={`lg:hidden fixed inset-0 z-30 transition-opacity ${sidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
+        <div className="absolute inset-0 bg-stone-900/40" onClick={() => setSidebarOpen(false)} />
+        <div className={`absolute top-0 left-0 h-full w-72 max-w-[85vw] bg-white shadow-xl flex flex-col transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+          <div className="flex items-center justify-between px-5 py-5">
+            <div className="flex items-center gap-2.5">
+              <Logo size={30} tone="brand" />
+              <span className="text-lg font-semibold text-stone-900 tracking-tight">Cabintree</span>
+            </div>
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="p-1.5 rounded-lg hover:bg-stone-100 text-stone-500"><X size={20} /></button>
           </div>
-          <div className="flex items-center gap-3">
-            <HouseholdSwitcher memberships={memberships} activeHouseholdId={householdId} onSwitch={switchHousehold} onCreateFamily={createFamilyHousehold} onLeave={leaveHousehold} />
-            <button onClick={handleSignOut} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 text-xs sm:text-sm transition"><LogOut size={14} /> <span className="hidden sm:inline">Sign out</span></button>
+          <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
+            {tabs.map((t) => navButton(t, true))}
+          </nav>
+          <div className="border-t border-stone-200 p-3 space-y-2">
+            <HouseholdSwitcher memberships={memberships} activeHouseholdId={householdId} onSwitch={switchHousehold} onCreateFamily={createFamilyHousehold} onLeave={leaveHousehold} openUpward />
+            <button onClick={handleSignOut} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 text-xs transition"><LogOut size={14} /> Sign out</button>
           </div>
         </div>
-      </header>
+      </div>
 
-      <nav className="bg-white border-b border-stone-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto flex overflow-x-auto px-1">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            return (
-              <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1.5 px-2 sm:px-3.5 py-2 sm:py-3 text-[10px] sm:text-sm whitespace-nowrap border-b-2 transition-colors ${tab === t.id ? "border-teal-600 text-teal-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>
-                <Icon size={14} />
-                <span className="sm:hidden">{t.short}</span>
-                <span className="hidden sm:inline">{t.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-
-      {inviteBanner && inviteBanner.status !== "pending" && (
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
-          <div className={`rounded-xl px-3 py-2 text-xs flex items-center justify-between gap-2 border ${inviteBanner.status === "accepted" ? "bg-teal-50 border-teal-200 text-teal-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
-            <span className="flex items-center gap-2"><Users size={14} /> {inviteBanner.status === "accepted" ? "You've joined the shared household." : inviteBanner.message}</span>
-            <button onClick={() => setInviteBanner(null)} className="opacity-60 hover:opacity-100">✕</button>
+      {/* Main content */}
+      <div className="flex-1 min-w-0">
+        {inviteBanner && inviteBanner.status !== "pending" && (
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3">
+            <div className={`rounded-xl px-3 py-2 text-xs flex items-center justify-between gap-2 border ${inviteBanner.status === "accepted" ? "bg-teal-50 border-teal-200 text-teal-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
+              <span className="flex items-center gap-2"><Users size={14} /> {inviteBanner.status === "accepted" ? "You've joined the shared household." : inviteBanner.message}</span>
+              <button onClick={() => setInviteBanner(null)} className="opacity-60 hover:opacity-100">✕</button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <main className="p-4 sm:p-6 max-w-5xl mx-auto">
-        {tab === "dashboard" && <Dashboard data={data} setData={setData} />}
-        {tab === "properties" && <Properties properties={data.properties} addProperty={addProperty} updProperty={updProperty} delProperty={delProperty} />}
-        {tab === "investments" && <Investments data={data} setData={setData} />}
-        {tab === "debts" && <DebtsBills data={data} setData={setData} />}
-        {tab === "budget" && <Budget data={data} setData={setData} />}
-        {tab === "receipts" && <Receipts data={data} setData={setData} shared={shared} />}
-        {tab === "childcare" && <Childcare data={data} setData={setData} />}
-        {tab === "vehicles" && <Vehicles data={data} setData={setData} />}
-        {tab === "goals" && <Goals data={data} setData={setData} />}
-        {tab === "household" && <Household data={data} setHH={setHH} setData={setData} />}
-        {tab === "tax" && <TaxReport data={data} setData={setData} />}
-      </main>
-      <div className="h-8" />
+        <main className="p-4 sm:p-6 max-w-5xl mx-auto">
+          {tab === "dashboard" && <Dashboard data={data} setData={setData} />}
+          {tab === "properties" && <Properties properties={data.properties} addProperty={addProperty} updProperty={updProperty} delProperty={delProperty} />}
+          {tab === "investments" && <Investments data={data} setData={setData} />}
+          {tab === "debts" && <DebtsBills data={data} setData={setData} />}
+          {tab === "budget" && <Budget data={data} setData={setData} />}
+          {tab === "receipts" && <Receipts data={data} setData={setData} shared={shared} />}
+          {tab === "childcare" && <Childcare data={data} setData={setData} />}
+          {tab === "vehicles" && <Vehicles data={data} setData={setData} />}
+          {tab === "goals" && <Goals data={data} setData={setData} />}
+          {tab === "household" && <Household data={data} setHH={setHH} setData={setData} />}
+          {tab === "tax" && <TaxReport data={data} setData={setData} />}
+        </main>
+        <div className="h-8" />
+      </div>
+
+      {/* Save confirmation toast */}
+      <div className={`fixed bottom-4 right-4 z-40 flex items-center gap-1.5 bg-stone-900 text-white text-xs font-medium px-3.5 py-2 rounded-full shadow-lg transition-all duration-300 ${savedAt ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"}`}>
+        <CheckCircle size={14} className="text-teal-400" /> Saved
+      </div>
     </div>
   );
 }
@@ -1339,6 +1525,21 @@ function ChartCard({ title, children, hint }) {
 }
 
 /* ---------- Income & tax-bracket progression ---------- */
+// Optional YTD pay-stub figures. Pay amounts only, never personal info.
+const PAY_DETAIL_FIELDS = [
+  { key: "ytdGross", label: "YTD gross" },
+  { key: "citTaxableGross", label: "CIT taxable gross" },
+  { key: "totalTaxes", label: "Total taxes" },
+  { key: "totalDeductions", label: "Total deductions" },
+  { key: "netPay", label: "Net pay" },
+  { key: "hourlyWage", label: "Hourly wage" },
+  { key: "cit", label: "CIT (T4)" },
+  { key: "cppEE", label: "CPP-EE" },
+  { key: "eiEE", label: "EI-EE" },
+  { key: "cpp2EE", label: "CPP2-EE" },
+];
+const PAY_DETAIL_DEFAULTS = Object.fromEntries(PAY_DETAIL_FIELDS.map((f) => [f.key, 0]));
+
 function IncomeTracker({ data, setData }) {
   const yr = new Date().getFullYear();
   const t = taxTableFor(yr);
@@ -1348,6 +1549,8 @@ function IncomeTracker({ data, setData }) {
   const hasP2 = (data.household.p2Name && data.household.p2Name !== "Spouse/Partner") || log.some((e) => e.person === "p2");
   const people = hasP2 ? [{ key: "p1", name: data.household.p1Name || "Me" }, { key: "p2", name: data.household.p2Name || "Partner" }] : [{ key: "p1", name: data.household.p1Name || "Me" }];
   const [busy, setBusy] = useState(false);
+  const [payDetailsOpen, setPayDetailsOpen] = useState({});
+  const togglePayDetails = (id) => setPayDetailsOpen((s) => ({ ...s, [id]: !s[id] }));
 
   const ytdFor = (key) => log.filter((e) => e.person === key).reduce((s, e) => s + num(e.gross), 0);
   const taxFor = (key) => log.filter((e) => e.person === key).reduce((s, e) => s + num(e.taxWithheld), 0);
@@ -1359,7 +1562,7 @@ function IncomeTracker({ data, setData }) {
   const monthsElapsed = (new Date().getMonth() + 1);
   const annualize = (v) => (monthsElapsed > 0 ? (v / monthsElapsed) * 12 : 0);
 
-  const addEntry = (person) => setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: new Date().toISOString().slice(0, 10), gross: 0, taxWithheld: 0, oneTime: false, source: "manual" }, ...(d.incomeLog || [])] }));
+  const addEntry = (person) => setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: new Date().toISOString().slice(0, 10), gross: 0, taxWithheld: 0, oneTime: false, source: "manual", ...PAY_DETAIL_DEFAULTS }, ...(d.incomeLog || [])] }));
   const updEntry = (id, patch) => setData((d) => ({ ...d, incomeLog: d.incomeLog.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
   const delEntry = (id) => setData((d) => ({ ...d, incomeLog: d.incomeLog.filter((e) => e.id !== id) }));
 
@@ -1374,8 +1577,8 @@ function IncomeTracker({ data, setData }) {
   };
 
   const applyStubText = (person, text) => {
-    const { gross, taxWithheld, payDate } = parsePayStubText(text);
-    setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: payDate || new Date().toISOString().slice(0, 10), gross, taxWithheld, source: "paystub" }, ...(d.incomeLog || [])] }));
+    const { gross, taxWithheld, payDate, ...payDetails } = parsePayStubText(text);
+    setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: payDate || new Date().toISOString().slice(0, 10), gross, taxWithheld, oneTime: false, source: "paystub", ...PAY_DETAIL_DEFAULTS, ...payDetails }, ...(d.incomeLog || [])] }));
   };
   const uploadStub = async (person, file) => {
     if (!file) return; setBusy(true);
@@ -1400,7 +1603,7 @@ function IncomeTracker({ data, setData }) {
         <h3 className="font-medium text-stone-700 text-sm">Income & tax brackets · {yr}</h3>
         <span className="text-xs text-stone-400">{PROV_NAMES[provCode]}</span>
       </div>
-      <p className="text-xs text-stone-400 mb-3">Log pay or upload a pay stub — your income fills in across the year, marking each tax bracket you cross and comparing estimated vs. actual tax.</p>
+      <p className="text-xs text-stone-400 mb-3">Log pay or upload a pay stub. Your income fills in across the year, marking each tax bracket you cross and comparing estimated vs. actual tax.</p>
 
       {people.map((pp) => {
         const ytd = ytdFor(pp.key);
@@ -1472,14 +1675,26 @@ function IncomeTracker({ data, setData }) {
             {log.filter((e) => e.person === pp.key).length > 0 && (
               <div className="mt-2 space-y-1.5 border-t border-stone-100 pt-2">
                 {log.filter((e) => e.person === pp.key).map((e) => (
-                  <div key={e.id} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end">
-                    <TextField label="Pay date" type="date" value={e.date} onChange={(v) => updEntry(e.id, { date: v })} className="col-span-1 sm:col-span-3" />
-                    <NumberField label="Gross" value={e.gross} onChange={(v) => updEntry(e.id, { gross: v })} className="col-span-1 sm:col-span-3" />
-                    <NumberField label="Tax withheld" value={e.taxWithheld} onChange={(v) => updEntry(e.id, { taxWithheld: v })} className="col-span-2 sm:col-span-3" />
-                    <div className="col-span-2 sm:col-span-3 flex items-center justify-between pb-2">
-                      <label className="flex items-center gap-1 text-xs text-stone-600" title="One-time amounts (bonus, lump sum) aren't annualized"><input type="checkbox" checked={!!e.oneTime} onChange={(ev) => updEntry(e.id, { oneTime: ev.target.checked })} /> One-time</label>
-                      <button onClick={() => delEntry(e.id)} className="text-rose-400 hover:text-rose-600"><Trash2 size={13} /></button>
+                  <div key={e.id}>
+                    <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end">
+                      <TextField label="Pay date" type="date" value={e.date} onChange={(v) => updEntry(e.id, { date: v })} className="col-span-1 sm:col-span-3" />
+                      <NumberField label="Gross" value={e.gross} onChange={(v) => updEntry(e.id, { gross: v })} className="col-span-1 sm:col-span-3" />
+                      <NumberField label="Tax withheld" value={e.taxWithheld} onChange={(v) => updEntry(e.id, { taxWithheld: v })} className="col-span-2 sm:col-span-3" />
+                      <div className="col-span-2 sm:col-span-3 flex items-center justify-between pb-2">
+                        <label className="flex items-center gap-1 text-xs text-stone-600" title="One-time amounts (bonus, lump sum) aren't annualized"><input type="checkbox" checked={!!e.oneTime} onChange={(ev) => updEntry(e.id, { oneTime: ev.target.checked })} /> One-time</label>
+                        <button onClick={() => delEntry(e.id)} className="text-rose-400 hover:text-rose-600"><Trash2 size={13} /></button>
+                      </div>
                     </div>
+                    <button onClick={() => togglePayDetails(e.id)} className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-600 mt-0.5">
+                      {payDetailsOpen[e.id] ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Pay details (YTD)
+                    </button>
+                    {payDetailsOpen[e.id] && (
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1.5 mb-1 bg-stone-50 rounded-lg p-2">
+                        {PAY_DETAIL_FIELDS.map((f) => (
+                          <NumberField key={f.key} label={f.label} value={e[f.key] || 0} onChange={(v) => updEntry(e.id, { [f.key]: v })} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1487,7 +1702,7 @@ function IncomeTracker({ data, setData }) {
           </div>
         );
       })}
-      <p className="text-xs text-stone-400">Projections annualize your recurring pay to a full year and add one-time amounts (tick "1×" for bonuses or lump sums) just once — so a bonus doesn't inflate the projection as if it repeats. It sharpens as more pay periods are logged.</p>
+      <p className="text-xs text-stone-400">Projections annualize your recurring pay to a full year and add one-time amounts (tick "1×" for bonuses or lump sums) just once, so a bonus doesn't inflate the projection as if it repeats. It sharpens as more pay periods are logged.</p>
     </Card>
   );
 }
@@ -1510,13 +1725,13 @@ function Dashboard({ data, setData }) {
   const insights = [];
   if (prev) {
     const dDebt = tot.debt - prev.debt, dSav = tot.savings - prev.savings, dNW = tot.netWorth - prev.netWorth;
-    if (dDebt > 1) insights.push({ tone: "bad", text: `Total debt rose ${fmt(dDebt)} since last month — check what's driving it.` });
+    if (dDebt > 1) insights.push({ tone: "bad", text: `Total debt rose ${fmt(dDebt)} since last month. Check what's driving it.` });
     else if (dDebt < -1) insights.push({ tone: "good", text: `You paid down ${fmt(-dDebt)} of debt since last month. Keep it up.` });
     if (dSav < -1) insights.push({ tone: "warn", text: `Savings & investments dipped ${fmt(-dSav)} this month.` });
     else if (dSav > 1) insights.push({ tone: "good", text: `Savings & investments grew ${fmt(dSav)} this month.` });
     if (dNW < -1) insights.push({ tone: "warn", text: `Net worth slipped ${fmt(-dNW)} month over month.` });
   }
-  if (netFlow < 0) insights.push({ tone: "warn", text: `Rental income doesn't cover your monthly payments by ${fmt(-netFlow)} — the gap comes from employment income.` });
+  if (netFlow < 0) insights.push({ tone: "warn", text: `Rental income doesn't cover your monthly payments by ${fmt(-netFlow)}; the gap comes from employment income.` });
   else if (netFlow > 0 && rentMonthly > 0) insights.push({ tone: "good", text: `Rental income covers your tracked payments with ${fmt(netFlow)} to spare each month.` });
   const goalsTarget = (data.goals || []).reduce((s, g) => s + num(g.target), 0);
   const goalsSaved = (data.goals || []).reduce((s, g) => s + num(g.saved), 0);
@@ -1530,11 +1745,11 @@ function Dashboard({ data, setData }) {
   if (monthlyBurn > 0 && liquidCash > emergencyTarget + 5000 && (tfsaRoomLeft > 0 || rrspRoomLeft > 0)) {
     const room = Math.max(tfsaRoomLeft, rrspRoomLeft);
     const excess = liquidCash - emergencyTarget;
-    insights.push({ tone: "good", text: `You have ${fmt(excess)} in cash beyond a 3-month expense buffer — with ${fmt(room)} of ${tfsaRoomLeft >= rrspRoomLeft ? "TFSA" : "RRSP"} room available, there may be room to invest it.` });
+    insights.push({ tone: "good", text: `You have ${fmt(excess)} in cash beyond a 3-month expense buffer; with ${fmt(room)} of ${tfsaRoomLeft >= rrspRoomLeft ? "TFSA" : "RRSP"} room available, there may be room to invest it.` });
   }
   const highRateDebt = (data.debts || []).find((x) => num(x.rate) > 10 && num(x.balance) > 0);
   if (highRateDebt && liquidCash > monthlyBurn + 1000) {
-    insights.push({ tone: "warn", text: `${highRateDebt.name || "A debt"} is charging ${num(highRateDebt.rate)}% interest while you're holding ${fmt(liquidCash)} in cash — paying it down could save more than most savings accounts earn.` });
+    insights.push({ tone: "warn", text: `${highRateDebt.name || "A debt"} is charging ${num(highRateDebt.rate)}% interest while you're holding ${fmt(liquidCash)} in cash; paying it down could save more than most savings accounts earn.` });
   }
   (data.goals || []).forEach((g) => {
     if (!g.targetDate || !num(g.target)) return;
@@ -1545,8 +1760,8 @@ function Dashboard({ data, setData }) {
       insights.push({ tone: "warn", text: `"${g.name || "Your goal"}" is due in ${monthsLeft <= 0 ? "under a month" : `${monthsLeft} month${monthsLeft === 1 ? "" : "s"}`} with ${fmt(remaining)} still to save.` });
     }
   });
-  if (tot.debt === 0 && tot.investments > 0) insights.push({ tone: "good", text: `You're debt-free with ${fmt(tot.investments)} invested — consider directing more of your monthly cash flow toward investing.` });
-  else if (tot.assets > 0 && tot.debt / tot.assets > 0.8) insights.push({ tone: "warn", text: `Debt makes up ${((tot.debt / tot.assets) * 100).toFixed(0)}% of your assets — a highly leveraged position worth keeping an eye on.` });
+  if (tot.debt === 0 && tot.investments > 0) insights.push({ tone: "good", text: `You're debt-free with ${fmt(tot.investments)} invested. Consider directing more of your monthly cash flow toward investing.` });
+  else if (tot.assets > 0 && tot.debt / tot.assets > 0.8) insights.push({ tone: "warn", text: `Debt makes up ${((tot.debt / tot.assets) * 100).toFixed(0)}% of your assets, a highly leveraged position worth keeping an eye on.` });
 
   const spend = [
     { name: "Mortgages", value: mortgagePay },
@@ -1687,7 +1902,7 @@ function Dashboard({ data, setData }) {
       {/* Properties */}
       <Card>
         <h3 className="font-medium text-stone-700 mb-3 text-sm">Properties at a glance</h3>
-        {data.properties.length === 0 ? <p className="text-sm text-stone-400">No properties yet — add them in the Properties tab.</p> : (
+        {data.properties.length === 0 ? <p className="text-sm text-stone-400">No properties yet. Add them in the Properties tab.</p> : (
           <div className="space-y-2">
             {data.properties.map((p) => {
               const eq = propEquity(p);
@@ -1708,7 +1923,7 @@ function Dashboard({ data, setData }) {
       </Card>
 
       <Card className="bg-amber-50 border-amber-200">
-        <div className="flex gap-2 text-sm text-amber-800"><AlertCircle size={18} className="shrink-0 mt-0.5" /><p>Trend charts fill in as the months pass. Values are entered manually — keep them current. This isn't financial or tax advice.</p></div>
+        <div className="flex gap-2 text-sm text-amber-800"><AlertCircle size={18} className="shrink-0 mt-0.5" /><p>Trend charts fill in as the months pass. Values are entered manually, keep them current. This isn't financial or tax advice.</p></div>
       </Card>
     </div>
   );
@@ -1803,9 +2018,9 @@ function YearOverview({ data }) {
                     return (
                       <tr key={y} onClick={() => setYear(y)} className={`border-b border-stone-50 cursor-pointer hover:bg-stone-50 ${year === y ? "bg-teal-50" : ""}`}>
                         <td className="py-1.5 font-medium">{y}</td>
-                        <td className="text-right">{end ? fmt(end.netWorth) : "—"}</td>
-                        <td className={`text-right ${chg == null ? "" : chg >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{chg == null ? "—" : `${chg >= 0 ? "+" : "−"}${fmt(Math.abs(chg))}`}</td>
-                        <td className="text-right">{inc > 0 ? fmt(inc) : "—"}</td>
+                        <td className="text-right">{end ? fmt(end.netWorth) : "N/A"}</td>
+                        <td className={`text-right ${chg == null ? "" : chg >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{chg == null ? "N/A" : `${chg >= 0 ? "+" : "−"}${fmt(Math.abs(chg))}`}</td>
+                        <td className="text-right">{inc > 0 ? fmt(inc) : "N/A"}</td>
                       </tr>
                     );
                   })}
@@ -1895,7 +2110,7 @@ function PropertyCard({ p, open, toggle, upd, del }) {
               <NumberField label="Monthly payment" value={p.mortgage.payment} onChange={(v) => setMortgage({ payment: v })} />
               <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Equity / LTV</div><div className="font-medium text-sm">{fmt(eq)}</div><div className="text-stone-400">{num(p.currentValue) ? ((num(p.mortgage.balance) / num(p.currentValue)) * 100).toFixed(0) : 0}% LTV</div></div>
             </div>
-            {amort && amort.neverPaysOff && <p className="text-xs text-rose-500 mt-2 flex items-center gap-1"><AlertCircle size={13} /> Payment too low to cover interest — the balance never clears.</p>}
+            {amort && amort.neverPaysOff && <p className="text-xs text-rose-500 mt-2 flex items-center gap-1"><AlertCircle size={13} /> Payment too low to cover interest. The balance never clears.</p>}
             {amort && !amort.neverPaysOff && (
               <div className="mt-3 bg-stone-50 rounded-xl p-3">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-stone-600 mb-2"><TrendingDown size={14} /> Payoff projection</div>
@@ -1915,7 +2130,7 @@ function PropertyCard({ p, open, toggle, upd, del }) {
                 </ResponsiveContainer>
               </div>
             )}
-            <p className="text-xs text-stone-400 mt-1.5">Est. annual interest ≈ {fmt(propAnnualInterestEstimate(p))} — use your lender's figure for line 8710.</p>
+            <p className="text-xs text-stone-400 mt-1.5">Est. annual interest ≈ {fmt(propAnnualInterestEstimate(p))}, use your lender's figure for line 8710.</p>
           </section>
 
           <section>
@@ -2051,7 +2266,7 @@ function Investments({ data, setData }) {
         )}
       </ChartCard>
       <Card>
-        <h3 className="font-medium text-stone-700 mb-3">RRSP — Retirement Savings</h3>
+        <h3 className="font-medium text-stone-700 mb-3">RRSP: Retirement Savings</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <NumberField label="Deduction limit (from NOA)" value={inv.rrsp.room} onChange={(v) => setInv("rrsp", { room: v })} />
           <NumberField label="Current value" value={inv.rrsp.value} onChange={(v) => setInv("rrsp", { value: v })} />
@@ -2062,7 +2277,7 @@ function Investments({ data, setData }) {
         <p className="text-xs text-stone-400 mt-2">Reduces taxable income (line 20800). 2026 dollar-limit ceiling is $33,810; your limit is on your Notice of Assessment.</p>
       </Card>
       <Card>
-        <h3 className="font-medium text-stone-700 mb-3">TFSA — Tax-Free Savings</h3>
+        <h3 className="font-medium text-stone-700 mb-3">TFSA: Tax-Free Savings</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <NumberField label="Contribution room" value={inv.tfsa.room} onChange={(v) => setInv("tfsa", { room: v })} />
           <NumberField label="Current value" value={inv.tfsa.value} onChange={(v) => setInv("tfsa", { value: v })} />
@@ -2073,7 +2288,7 @@ function Investments({ data, setData }) {
         <p className="text-xs text-stone-400 mt-2">Tax-free growth. Annual limit $7,000 (2024–2026); over-contributions cost 1%/month.</p>
       </Card>
       <Card>
-        <h3 className="font-medium text-stone-700 mb-3">RESP — Education Savings</h3>
+        <h3 className="font-medium text-stone-700 mb-3">RESP: Education Savings</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <NumberField label="Current value" value={inv.resp.value} onChange={(v) => setInv("resp", { value: v })} />
           <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(respThisYear)}</div></div>
@@ -2084,7 +2299,7 @@ function Investments({ data, setData }) {
         <p className="text-xs text-stone-400 mt-2">Government adds 20% (up to $500/yr per child, $7,200 lifetime). Lifetime contribution cap $50,000 per child.</p>
       </Card>
       <Card>
-        <h3 className="font-medium text-stone-700 mb-3">FHSA — First Home Savings Account</h3>
+        <h3 className="font-medium text-stone-700 mb-3">FHSA: First Home Savings Account</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <NumberField label="Contribution room" value={fhsa.room} onChange={(v) => setInv("fhsa", { room: v })} />
           <NumberField label="Current value" value={fhsa.value} onChange={(v) => setInv("fhsa", { value: v })} />
@@ -2202,7 +2417,7 @@ function DebtsBills({ data, setData }) {
               <CategorySelect label="Category" value={b.category} categories={cats} onChange={(v) => updBill(b.id, { category: v })} onAddCategory={addCat} className="col-span-3" />
               <NumberField label="Amount" value={b.amount} onChange={(v) => updBill(b.id, { amount: v })} className="col-span-2" />
               <label className="col-span-2"><span className="text-xs text-stone-500">Freq.</span>
-                <select value={b.frequency} onChange={(e) => updBill(b.id, { frequency: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="monthly">Monthly</option><option value="annual">Annual</option></select>
+                <select value={b.frequency} onChange={(e) => updBill(b.id, { frequency: e.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="biannual">Biannual (every 6 mo.)</option><option value="annual">Annual</option></select>
               </label>
               <button onClick={() => delBill(b.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
             </div>
@@ -2212,7 +2427,7 @@ function DebtsBills({ data, setData }) {
       </Card>
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">One-time expenses</h3><button onClick={() => setData((d) => ({ ...d, oneTime: [...(d.oneTime || []), { id: uid(), date: "", description: "", amount: 0, category: "Other" }] }))} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add expense</button></div>
-        {(data.oneTime || []).length === 0 && <p className="text-sm text-stone-400">One-off costs — appliances, a vacation, medical bills, a big repair.</p>}
+        {(data.oneTime || []).length === 0 && <p className="text-sm text-stone-400">One-off costs: appliances, a vacation, medical bills, a big repair.</p>}
         <div className="space-y-2">
           {(data.oneTime || []).map((o) => (
             <div key={o.id} className="grid grid-cols-12 gap-2 items-end">
@@ -2249,6 +2464,8 @@ function Receipts({ data, setData, shared }) {
   const isExpanded = (id) => !!expanded[id];
   const openReceipt = (id) => setExpanded((s) => ({ ...s, [id]: true }));
   const closeReceipt = (id) => setExpanded((s) => { const n = { ...s }; delete n[id]; return n; });
+  const [statementBusy, setStatementBusy] = useState(false);
+  const [statementTxns, setStatementTxns] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -2306,6 +2523,24 @@ function Receipts({ data, setData, shared }) {
   const addCatValue = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
   const addCat = () => { addCatValue(newCat.trim()); setNewCat(""); };
   const delCat = (c) => setData((d) => ({ ...d, receiptCategories: d.receiptCategories.filter((x) => x !== c) }));
+
+  const onStatementFile = async (file) => {
+    if (!file) return;
+    setStatementBusy(true);
+    try {
+      const text = await extractAllPdfText(file);
+      const txns = parseStatementTransactions(text).map((t) => ({ ...t, category: categorizeTransaction(t.description, cats) }));
+      setStatementTxns(txns);
+    } catch (e) { setStatementTxns([]); }
+    setStatementBusy(false);
+  };
+  const updTxn = (id, patch) => setStatementTxns((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  const includedTxns = (statementTxns || []).filter((t) => t.include);
+  const addStatementTxns = () => {
+    const toAdd = includedTxns.map((t) => ({ id: uid(), label: t.description, description: "", date: t.date, time: "", amount: t.amount, category: t.category, applyTo: "log", hasImage: false, source: "statement" }));
+    setData((d) => ({ ...d, receipts: [...toAdd, ...(d.receipts || [])] }));
+    setStatementTxns(null);
+  };
   const shown = filter === "All" ? receipts : receipts.filter((r) => r.category === filter);
   const shownTotal = shown.reduce((s, r) => s + num(r.amount), 0);
   const yearTotal = receipts.filter((r) => (r.date || "").slice(0, 4) === String(data.taxYear)).reduce((s, r) => s + num(r.amount), 0);
@@ -2316,9 +2551,45 @@ function Receipts({ data, setData, shared }) {
         <h2 className="font-medium text-stone-700">Receipts</h2>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowCats(!showCats)} className="text-sm text-stone-500 hover:text-stone-700">Categories</button>
+          {statementBusy ? (
+            <span className="flex items-center gap-1 text-sm text-stone-400"><Sparkles size={14} className="animate-pulse" /> Reading statement…</span>
+          ) : (
+            <label className="flex items-center gap-1 text-sm text-stone-600 hover:text-stone-800 cursor-pointer px-3 py-1.5 rounded-lg border border-stone-300 hover:border-stone-400"><Upload size={14} /> Import statement<input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => onStatementFile(e.target.files[0])} /></label>
+          )}
           <button onClick={addBlank} className="flex items-center gap-1 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Plus size={15} /> Add receipt</button>
         </div>
       </div>
+
+      {statementTxns !== null && (
+        <Card>
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-medium text-stone-700">Review statement transactions ({statementTxns.length} found)</h3>
+            <button onClick={() => setStatementTxns(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+          </div>
+          {statementTxns.length === 0 ? (
+            <p className="text-sm text-stone-400">Couldn't find any transaction rows in that statement. Try a different file, or add receipts manually.</p>
+          ) : (
+            <>
+              <p className="text-xs text-stone-400 mb-2">Categorized automatically by merchant name (e.g. subscriptions grouped together). Fix anything off, then add the ones you want. Payments/credits start unchecked.</p>
+              <div className="space-y-1.5 max-h-[28rem] overflow-y-auto">
+                {statementTxns.map((t) => (
+                  <div key={t.id} className={`grid grid-cols-12 gap-2 items-end p-2 rounded-lg bg-stone-50 ${t.include ? "" : "opacity-50"}`}>
+                    <label className="col-span-1 flex items-center justify-center pb-2"><input type="checkbox" checked={t.include} onChange={(e) => updTxn(t.id, { include: e.target.checked })} /></label>
+                    <TextField label="Date" type="date" value={t.date} onChange={(v) => updTxn(t.id, { date: v })} className="col-span-3 sm:col-span-2" />
+                    <TextField label="Description" value={t.description} onChange={(v) => updTxn(t.id, { description: v })} className="col-span-8 sm:col-span-4" />
+                    <CategorySelect label="Category" value={t.category} categories={cats} onChange={(v) => updTxn(t.id, { category: v })} onAddCategory={addCatValue} className="col-span-6 sm:col-span-3" />
+                    <NumberField label="Amount" value={t.amount} onChange={(v) => updTxn(t.id, { amount: v })} className="col-span-6 sm:col-span-2" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center mt-3 pt-2 border-t border-stone-100">
+                <span className="text-xs text-stone-400">{includedTxns.length} of {statementTxns.length} selected</span>
+                <button disabled={includedTxns.length === 0} onClick={addStatementTxns} className="text-sm bg-teal-600 text-white px-4 py-1.5 rounded-lg hover:bg-teal-700 disabled:opacity-50">Add {includedTxns.length} transaction{includedTxns.length === 1 ? "" : "s"}</button>
+              </div>
+            </>
+          )}
+        </Card>
+      )}
       {showCats && (
         <Card>
           <h3 className="text-sm font-medium text-stone-600 mb-2">Customize categories</h3>
@@ -2327,7 +2598,7 @@ function Receipts({ data, setData, shared }) {
         </Card>
       )}
       <Card className="bg-teal-50 border-teal-200">
-        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap a photo or upload a PDF — we read the merchant, date, and total automatically (PDF receipts read their text directly; photos and scanned PDFs use OCR). Accuracy varies; fix anything off or type it in. Set "Apply to" so it counts toward a rental or one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
+        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap a photo or upload a PDF. We read the merchant, date, and total automatically (PDF receipts read their text directly; photos and scanned PDFs use OCR). Accuracy varies; fix anything off or type it in. Set "Apply to" so it counts toward a rental or one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
       </Card>
       {receipts.length > 1 && (
         <div className="flex items-center gap-2"><span className="text-xs text-stone-500">Filter</span>
@@ -2441,7 +2712,7 @@ function Childcare({ data, setData }) {
         <div className="space-y-2">
           {data.childcare.map((e) => (
             <div key={e.id} className="grid grid-cols-12 gap-2 items-end bg-stone-50 rounded-lg p-2">
-              <label className="col-span-3"><span className="text-xs text-stone-500">Child</span><select value={e.childId} onChange={(ev) => updExp(e.id, { childId: ev.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="">—</option>{data.children.map((c) => <option key={c.id} value={c.id}>{c.name || "Child"}</option>)}</select></label>
+              <label className="col-span-3"><span className="text-xs text-stone-500">Child</span><select value={e.childId} onChange={(ev) => updExp(e.id, { childId: ev.target.value })} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"><option value="">No child</option>{data.children.map((c) => <option key={c.id} value={c.id}>{c.name || "Child"}</option>)}</select></label>
               <TextField label="Date" type="date" value={e.date} onChange={(v) => updExp(e.id, { date: v })} className="col-span-2" />
               <TextField label="Provider" value={e.provider} onChange={(v) => updExp(e.id, { provider: v })} className="col-span-3" />
               <TextField label="Provider SIN/BN" value={e.providerSIN} onChange={(v) => updExp(e.id, { providerSIN: v })} className="col-span-2" />
@@ -2450,7 +2721,7 @@ function Childcare({ data, setData }) {
             </div>
           ))}
         </div>
-        <p className="text-xs text-stone-400 mt-2">Keep every receipt — the CRA requires the provider's name and SIN (for individuals) if they ask.</p>
+        <p className="text-xs text-stone-400 mt-2">Keep every receipt. The CRA requires the provider's name and SIN (for individuals) if they ask.</p>
       </Card>
       <Card className="bg-emerald-50 border-emerald-200">
         <h3 className="font-medium text-emerald-800 mb-2">Estimated deduction (line 21400)</h3>
@@ -2546,7 +2817,7 @@ function Budget({ data, setData }) {
           </label>
         </div>
         <div className="mt-3 text-xs text-teal-50">
-          {toAllocate > 0 ? `Give every dollar a job — ${fmt(toAllocate)} still unassigned.` : toAllocate < 0 ? `You've assigned ${fmt(-toAllocate)} more than you earn — trim a folder.` : "Every dollar is assigned. Nicely balanced."}
+          {toAllocate > 0 ? `Give every dollar a job: ${fmt(toAllocate)} still unassigned.` : toAllocate < 0 ? `You've assigned ${fmt(-toAllocate)} more than you earn. Trim a folder.` : "Every dollar is assigned. Nicely balanced."}
         </div>
       </div>
 
@@ -2580,7 +2851,7 @@ function Budget({ data, setData }) {
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end mb-2">
                 <NumberField label="Monthly budget" value={e.budgeted} onChange={(v) => updEnv(e.id, { budgeted: v })} />
-                <CategorySelect label="Linked receipt category" value={e.category || ""} categories={cats} emptyLabel="— none —" onChange={(v) => updEnv(e.id, { category: v })} onAddCategory={addCat} />
+                <CategorySelect label="Linked receipt category" value={e.category || ""} categories={cats} emptyLabel="No category" onChange={(v) => updEnv(e.id, { category: v })} onAddCategory={addCat} />
                 <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Spent</div><div className="font-medium text-sm">{fmt(spent)}</div></div>
                 <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Remaining</div><div className={`font-medium text-sm ${remaining < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(remaining)}</div></div>
               </div>
@@ -2676,7 +2947,7 @@ function Household({ data, setHH, setData }) {
         if (!parsed || typeof parsed !== "object" || !parsed.household) throw new Error("bad file");
         setData(applyDefaults(parsed));
         setImportMsg("Backup restored.");
-      } catch (e) { setImportMsg("Couldn't read that file — make sure it's a backup exported here."); }
+      } catch (e) { setImportMsg("Couldn't read that file. Make sure it's a backup exported here."); }
       setTimeout(() => setImportMsg(""), 4000);
     };
     reader.readAsText(file);
@@ -2690,13 +2961,13 @@ function Household({ data, setHH, setData }) {
           <NumberField label="Person 1 net income (line 23600)" value={data.household.p1Income} onChange={(v) => setHH({ p1Income: v })} />
           <TextField label="Person 2 name" value={data.household.p2Name} onChange={(v) => setHH({ p2Name: v })} />
           <NumberField label="Person 2 net income (line 23600)" value={data.household.p2Income} onChange={(v) => setHH({ p2Income: v })} />
-          <label className="block col-span-2"><span className="text-xs text-stone-500">Province of residence (Dec 31) — sets your tax rates</span>
+          <label className="block col-span-2"><span className="text-xs text-stone-500">Province of residence (Dec 31): sets your tax rates</span>
             <select value={data.household.province || "BC"} onChange={(e) => setHH({ province: e.target.value })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">
               {Object.entries(PROV_NAMES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
             </select>
           </label>
         </div>
-        <p className="text-xs text-stone-400 mt-2">Net incomes drive the childcare two-thirds limit and who claims it. Province sets the tax brackets used in the estimate. Quebec residents note that federal tax is reduced by a 16.5% abatement since QC funds its own programs — still confirm with a tax professional.</p>
+        <p className="text-xs text-stone-400 mt-2">Net incomes drive the childcare two-thirds limit and who claims it. Province sets the tax brackets used in the estimate. Quebec residents note that federal tax is reduced by a 16.5% abatement since QC funds its own programs. Still confirm with a tax professional.</p>
       </Card>
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Dependents</h3><button onClick={addDep} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add dependent</button></div>
@@ -2711,22 +2982,22 @@ function Household({ data, setHH, setData }) {
                 <NumberField label="Birth year" prefix="" value={x.birthYear} onChange={(v) => updDep(x.id, { birthYear: v })} className="col-span-2" />
                 <label className="col-span-2 flex items-center gap-1.5 pb-2 text-xs text-stone-600"><input type="checkbox" checked={x.infirm} onChange={(e) => updDep(x.id, { infirm: e.target.checked })} /> Infirm</label>
                 <button onClick={() => delDep(x.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
-                {(age != null || x.infirm) && <div className="col-span-12 text-xs text-stone-400">{age != null && `Age ~${age}. `}{x.infirm && "May qualify for the Canada Caregiver Amount — confirm with CRA."}</div>}
+                {(age != null || x.infirm) && <div className="col-span-12 text-xs text-stone-400">{age != null && `Age ~${age}. `}{x.infirm && "May qualify for the Canada Caregiver Amount. Confirm with CRA."}</div>}
               </div>
             );
           })}
         </div>
-        <p className="text-xs text-stone-400 mt-2">For childcare claims, add children in the Childcare tab — that's where deduction limits are calculated.</p>
+        <p className="text-xs text-stone-400 mt-2">For childcare claims, add children in the Childcare tab; that's where deduction limits are calculated.</p>
       </Card>
       <Card>
         <h3 className="font-medium text-stone-700 mb-3">Other assets (for net worth)</h3>
         <div className="grid grid-cols-2 gap-3"><NumberField label="Cash / savings" value={data.household.cash} onChange={(v) => setHH({ cash: v })} /><NumberField label="Other assets" value={data.household.otherAssets} onChange={(v) => setHH({ otherAssets: v })} /></div>
-        <p className="text-xs text-stone-400 mt-2">Investment account values live in the Investments tab and are already counted in net worth. Use "Cash / savings" for a single rough figure, or list individual accounts below — both are added together.</p>
+        <p className="text-xs text-stone-400 mt-2">Investment account values live in the Investments tab and are already counted in net worth. Use "Cash / savings" for a single rough figure, or list individual accounts below; both are added together.</p>
       </Card>
 
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Bank accounts</h3><button onClick={() => setHH({ accounts: [...(data.household.accounts || []), { id: uid(), name: "", type: "chequing", balance: 0 }] })} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add account</button></div>
-        {(data.household.accounts || []).length === 0 && <p className="text-sm text-stone-400">Optional — break out individual chequing, savings, or other accounts instead of one lump "Cash / savings" figure above.</p>}
+        {(data.household.accounts || []).length === 0 && <p className="text-sm text-stone-400">Optional: break out individual chequing, savings, or other accounts instead of one lump "Cash / savings" figure above.</p>}
         <div className="space-y-2">
           {(data.household.accounts || []).map((a) => (
             <div key={a.id} className="grid grid-cols-12 gap-2 items-end">
@@ -2748,7 +3019,7 @@ function Household({ data, setHH, setData }) {
 
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Foreign assets</h3><button onClick={() => setHH({ foreignAssets: [...(data.household.foreignAssets || []), { id: uid(), name: "", currency: "USD", cad: 0 }] })} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add asset</button></div>
-        {(data.household.foreignAssets || []).length === 0 && <p className="text-sm text-stone-400">Foreign property, accounts, or investments — entered in CAD, counted in your net worth.</p>}
+        {(data.household.foreignAssets || []).length === 0 && <p className="text-sm text-stone-400">Foreign property, accounts, or investments, entered in CAD, counted in your net worth.</p>}
         <div className="space-y-2">
           {(data.household.foreignAssets || []).map((a) => (
             <div key={a.id} className="grid grid-cols-12 gap-2 items-end">
@@ -2762,14 +3033,14 @@ function Household({ data, setHH, setData }) {
           ))}
         </div>
         {(data.household.foreignAssets || []).reduce((s, a) => s + num(a.cad), 0) > 100000 && (
-          <p className="text-xs text-amber-700 mt-2">Your foreign assets exceed CAD $100,000 — you likely need to file Form T1135 (Foreign Income Verification Statement). This tracks current value; T1135 uses cost. Confirm with the CRA or an accountant.</p>
+          <p className="text-xs text-amber-700 mt-2">Your foreign assets exceed CAD $100,000. You likely need to file Form T1135 (Foreign Income Verification Statement). This tracks current value; T1135 uses cost. Confirm with the CRA or an accountant.</p>
         )}
         <p className="text-xs text-stone-400 mt-2">Enter values in CAD (convert at a recent rate). These count toward net worth on the dashboard.</p>
       </Card>
 
       <Card>
         <h3 className="font-medium text-stone-700 mb-1">Backup & restore</h3>
-        <p className="text-xs text-stone-400 mb-3">Your data lives in this browser. Export a backup file regularly — keep it somewhere safe, or use it to move everything to another device or hand it to the other family-account user.</p>
+        <p className="text-xs text-stone-400 mb-3">Your data lives in this browser. Export a backup file regularly. Keep it somewhere safe, or use it to move everything to another device or hand it to the other family-account user.</p>
         <div className="flex flex-wrap gap-2">
           <button onClick={exportBackup} className="flex items-center gap-1.5 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Download size={15} /> Export backup</button>
           <label className="flex items-center gap-1.5 text-sm bg-stone-700 text-white px-3 py-1.5 rounded-lg hover:bg-stone-600 cursor-pointer">
@@ -2778,7 +3049,7 @@ function Household({ data, setHH, setData }) {
           </label>
         </div>
         {importMsg && <p className={`text-xs mt-2 ${importMsg.startsWith("Couldn't") ? "text-rose-600" : "text-emerald-600"}`}>{importMsg}</p>}
-        <p className="text-xs text-stone-400 mt-2">Restoring replaces what's currently loaded in this {data.snapshots ? "" : ""}view — export first if you're unsure.</p>
+        <p className="text-xs text-stone-400 mt-2">Restoring replaces what's currently loaded in this {data.snapshots ? "" : ""}view. Export first if you're unsure.</p>
       </Card>
     </div>
   );
@@ -2900,7 +3171,7 @@ function TaxEstimateCard({ data, setData }) {
         </div>
       </div>
 
-      {t.approx && <div className="mb-3 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">No verified tax tables for {year} yet — using {year < 2025 ? "older" : "latest (2026)"} rates as an approximation. Verified years: 2025, 2026.</div>}
+      {t.approx && <div className="mb-3 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">No verified tax tables for {year} yet. Using {year < 2025 ? "older" : "latest (2026)"} rates as an approximation. Verified years: 2025, 2026.</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Inputs */}
@@ -2955,17 +3226,17 @@ function TaxEstimateCard({ data, setData }) {
             <div className={`text-xs ${res.refund >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{active.name} · estimated {res.refund >= 0 ? "refund" : "balance owing"}</div>
             <div className={`text-3xl font-bold mt-1 ${res.refund >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt(Math.abs(res.refund))}</div>
           </div>
-          {totalNetRental !== 0 && <p className="text-xs text-stone-400">Household net rental this year ≈ {fmt(totalNetRental)} — split by ownership into each person's "Rental income" field.</p>}
+          {totalNetRental !== 0 && <p className="text-xs text-stone-400">Household net rental this year ≈ {fmt(totalNetRental)}, split by ownership into each person's "Rental income" field.</p>}
         </div>
       </div>
 
       <div className={`mt-4 rounded-xl p-3 text-center font-semibold ${combined >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
         Combined household: estimated {combined >= 0 ? "refund" : "balance owing"} of {fmt(Math.abs(combined))}
       </div>
-      <p className="text-xs text-stone-400 mt-2">A robust estimate using verified {year} federal + provincial brackets, CPP/EI, and major non-refundable credits (basic personal, CPP/EI, pension, age, disability, donations, medical, tuition). It still simplifies some income-tested credits and won't match a filed return exactly — use certified tax software or an accountant to file.</p>
+      <p className="text-xs text-stone-400 mt-2">A robust estimate using verified {year} federal + provincial brackets, CPP/EI, and major non-refundable credits (basic personal, CPP/EI, pension, age, disability, donations, medical, tuition). It still simplifies some income-tested credits and won't match a filed return exactly. Use certified tax software or an accountant to file.</p>
       {(getP("p1").foreignIncome > 0 || getP("p2").foreignIncome > 0) && (
         <div className="mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">
-          Foreign income is taxed in Canada with a foreign tax credit for tax already paid abroad (the lesser of foreign tax paid and the Canadian tax on that income). This estimate doesn't model tax treaties or per-country rules. Heads-up: if your foreign property cost totals more than CAD $100,000 at any point in the year, you likely must file <strong>Form T1135</strong> — confirm with the CRA or an accountant.
+          Foreign income is taxed in Canada with a foreign tax credit for tax already paid abroad (the lesser of foreign tax paid and the Canadian tax on that income). This estimate doesn't model tax treaties or per-country rules. Heads-up: if your foreign property cost totals more than CAD $100,000 at any point in the year, you likely must file <strong>Form T1135</strong>. Confirm with the CRA or an accountant.
         </div>
       )}
 
@@ -3000,7 +3271,7 @@ function CompareYears({ person, active, cc, province }) {
               ))}
             </tbody>
           </table>
-          <p className="text-xs text-stone-400 mt-1">Same inputs, applied to each year's rates — useful for seeing how indexation and rate changes affect you. Uses {PROV_NAMES[province] || "BC"} provincial rates.</p>
+          <p className="text-xs text-stone-400 mt-1">Same inputs, applied to each year's rates: useful for seeing how indexation and rate changes affect you. Uses {PROV_NAMES[province] || "BC"} provincial rates.</p>
         </div>
       )}
     </div>
@@ -3054,13 +3325,13 @@ function TaxReport({ data, setData }) {
   const emailReport = () => {
     const prov = PROV_NAMES[data.household.province] || data.household.province || "BC";
     const lines = [
-      `Cabintree Tax Summary — ${year}`,
+      `Cabintree Tax Summary: ${year}`,
       `Province: ${prov}`,
       `Generated: ${new Date().toLocaleDateString("en-CA")}`,
       "",
     ];
     summaries.forEach((s) => {
-      lines.push(`${s.p.name} — T776 Rental Income`);
+      lines.push(`${s.p.name}: T776 Rental Income`);
       lines.push(`  Gross rental income: ${fmt(s.grossRent)}`);
       s.lines.filter((l) => l.total > 0).forEach((l) => {
         lines.push(`  Line ${l.code} ${l.label}: ${fmt(l.deductible)}${l.personal > 0 ? ` (personal: ${fmt(l.personal)})` : ""}`);
@@ -3072,15 +3343,15 @@ function TaxReport({ data, setData }) {
     if (summaries.length === 0) lines.push("No rental properties to report this year.", "");
     lines.push("---");
     lines.push("This is an estimate only. Use certified tax software or an accountant to file.");
-    lines.push("Cabintree — cabintree.vercel.app");
-    const subject = encodeURIComponent(`Tax Summary ${year} — Cabintree`);
+    lines.push("Cabintree: cabintree.vercel.app");
+    const subject = encodeURIComponent(`Tax Summary ${year}: Cabintree`);
     const body = encodeURIComponent(lines.join("\n"));
     window.open(`mailto:?subject=${subject}&body=${body}`, "_blank");
   };
   const emailCSV = () => {
     const csv = buildCSVRows();
-    const subject = encodeURIComponent(`Tax Summary ${year} CSV — Cabintree`);
-    const body = encodeURIComponent(`Tax summary for ${year} — paste the section below into a .csv file to open in Excel or Numbers.\n\n${csv}\n\nGenerated by Cabintree — cabintree.vercel.app`);
+    const subject = encodeURIComponent(`Tax Summary ${year} CSV: Cabintree`);
+    const body = encodeURIComponent(`Tax summary for ${year}: paste the section below into a .csv file to open in Excel or Numbers.\n\n${csv}\n\nGenerated by Cabintree: cabintree.vercel.app`);
     window.open(`mailto:?subject=${subject}&body=${body}`, "_blank");
   };
   return (
@@ -3104,13 +3375,13 @@ function TaxReport({ data, setData }) {
       {summaries.length === 0 && <p className="text-sm text-stone-400">Add properties to generate T776 summaries.</p>}
       {summaries.map((s) => (
         <Card key={s.p.id}>
-          <div className="flex justify-between items-baseline mb-3"><h3 className="font-medium text-stone-700">{s.p.name} — T776 summary</h3><span className="text-xs text-stone-400">{s.p.occupancy === "partial" ? `${s.p.personalUsePct}% personal use` : "100% rental"}</span></div>
+          <div className="flex justify-between items-baseline mb-3"><h3 className="font-medium text-stone-700">{s.p.name}: T776 summary</h3><span className="text-xs text-stone-400">{s.p.occupancy === "partial" ? `${s.p.personalUsePct}% personal use` : "100% rental"}</span></div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-xs text-stone-400 border-b border-stone-200"><th className="text-left py-1.5 font-normal">Line</th><th className="text-left font-normal">Category</th><th className="text-right font-normal">Total</th><th className="text-right font-normal">Personal</th><th className="text-right font-normal">Deductible</th></tr></thead>
               <tbody>
                 <tr className="border-b border-stone-100"><td className="py-1.5 text-stone-500">8299</td><td className="font-medium">Gross rental income</td><td className="text-right" colSpan={3}>{fmt2(s.grossRent)}</td></tr>
-                {s.lines.filter((l) => l.total > 0).map((l) => <tr key={l.code} className="border-b border-stone-50"><td className="py-1 text-stone-500">{l.code}</td><td>{l.label}</td><td className="text-right text-stone-500">{fmt2(l.total)}</td><td className="text-right text-stone-400">{l.personal ? fmt2(l.personal) : "—"}</td><td className="text-right">{fmt2(l.deductible)}</td></tr>)}
+                {s.lines.filter((l) => l.total > 0).map((l) => <tr key={l.code} className="border-b border-stone-50"><td className="py-1 text-stone-500">{l.code}</td><td>{l.label}</td><td className="text-right text-stone-500">{fmt2(l.total)}</td><td className="text-right text-stone-400">{l.personal ? fmt2(l.personal) : "N/A"}</td><td className="text-right">{fmt2(l.deductible)}</td></tr>)}
                 <tr className="border-t border-stone-200 font-medium"><td className="py-1.5 text-stone-500">9369</td><td colSpan={3}>Net rental income (before CCA)</td><td className={`text-right ${s.net >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt2(s.net)}</td></tr>
                 <tr className="text-stone-500"><td className="py-1">9946</td><td colSpan={3}>Your share ({s.p.ownershipPct}%)</td><td className="text-right">{fmt2(s.yourShare)}</td></tr>
               </tbody>
@@ -3119,8 +3390,8 @@ function TaxReport({ data, setData }) {
           {s.capital.length > 0 && (
             <div className="mt-3 bg-stone-50 rounded-lg p-3">
               <div className="text-xs font-medium text-stone-600 mb-1">Capital additions {year} → for CCA (line 9936)</div>
-              {s.capital.map((c) => <div key={c.id} className="flex justify-between text-xs text-stone-500 py-0.5"><span>{c.description || "—"} ({c.date || "no date"})</span><span>{fmt2(c.amount)}</span></div>)}
-              <p className="text-xs text-stone-400 mt-1.5">CCA isn't auto-calculated — it's optional and can affect your principal-residence exemption. Decide with your accountant.</p>
+              {s.capital.map((c) => <div key={c.id} className="flex justify-between text-xs text-stone-500 py-0.5"><span>{c.description || "N/A"} ({c.date || "no date"})</span><span>{fmt2(c.amount)}</span></div>)}
+              <p className="text-xs text-stone-400 mt-1.5">CCA isn't auto-calculated. It's optional and can affect your principal-residence exemption. Decide with your accountant.</p>
             </div>
           )}
         </Card>

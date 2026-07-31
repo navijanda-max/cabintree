@@ -4,7 +4,7 @@ import { Preferences } from '@capacitor/preferences'
 import './index.css'
 import App from './App.jsx'
 
-// window.storage — backed by Capacitor Preferences, which is durable native storage
+// window.storage: backed by Capacitor Preferences, which is durable native storage
 // (UserDefaults/SharedPreferences) on iOS/Android and automatically falls back to
 // localStorage when running as a regular website.
 window.storage = {
