@@ -2332,6 +2332,25 @@ function Investments({ data, setData }) {
 function DebtsBills({ data, setData }) {
   const cats = data.receiptCategories || [];
   const addCat = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
+  const [statementBusy, setStatementBusy] = useState(false);
+  const [statementTxns, setStatementTxns] = useState(null);
+  const onStatementFile = async (file) => {
+    if (!file) return;
+    setStatementBusy(true);
+    try {
+      const text = await extractAllPdfText(file);
+      const txns = parseStatementTransactions(text).map((t) => ({ ...t, category: categorizeTransaction(t.description, cats) }));
+      setStatementTxns(txns);
+    } catch (e) { setStatementTxns([]); }
+    setStatementBusy(false);
+  };
+  const updTxn = (id, patch) => setStatementTxns((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  const includedTxns = (statementTxns || []).filter((t) => t.include);
+  const addStatementTxns = () => {
+    const toAdd = includedTxns.map((t) => ({ id: uid(), label: t.description, description: "", date: t.date, time: "", amount: t.amount, category: t.category, applyTo: "log", hasImage: false, source: "statement" }));
+    setData((d) => ({ ...d, receipts: [...toAdd, ...(d.receipts || [])] }));
+    setStatementTxns(null);
+  };
   const debts = data.debts || [];
   const addDebt = () => setData((d) => ({ ...d, debts: [...(d.debts || []), { id: uid(), name: "", type: "Credit card", balance: 0, limit: 0, rate: 0, payment: 0 }] }));
   const updDebt = (id, patch) => setData((d) => ({ ...d, debts: d.debts.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
@@ -2379,7 +2398,47 @@ function DebtsBills({ data, setData }) {
         </ChartCard>
       )}
       <Card>
-        <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Lines of credit & credit cards</h3><button onClick={addDebt} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add debt</button></div>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="font-medium text-stone-700">Lines of credit & credit cards</h3>
+          <div className="flex items-center gap-2">
+            {statementBusy ? (
+              <span className="flex items-center gap-1 text-sm text-stone-400"><Sparkles size={14} className="animate-pulse" /> Reading statement…</span>
+            ) : (
+              <label className="flex items-center gap-1 text-sm text-stone-600 hover:text-stone-800 cursor-pointer px-3 py-1.5 rounded-lg border border-stone-300 hover:border-stone-400"><Upload size={14} /> Import statement<input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => onStatementFile(e.target.files[0])} /></label>
+            )}
+            <button onClick={addDebt} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add debt</button>
+          </div>
+        </div>
+        {statementTxns !== null && (
+          <div className="mb-3 bg-stone-50 rounded-xl p-3">
+            <div className="flex justify-between items-center mb-2">
+              <h4 className="text-sm font-medium text-stone-700">Review statement transactions ({statementTxns.length} found)</h4>
+              <button onClick={() => setStatementTxns(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+            </div>
+            {statementTxns.length === 0 ? (
+              <p className="text-sm text-stone-400">Couldn't find any transaction rows in that statement. Try a different file, or add receipts manually.</p>
+            ) : (
+              <>
+                <p className="text-xs text-stone-400 mb-2">Categorized automatically by merchant name (e.g. subscriptions grouped together). Fix anything off, then add the ones you want. Payments/credits start unchecked.</p>
+                <div className="space-y-1.5 max-h-[28rem] overflow-y-auto">
+                  {statementTxns.map((t) => (
+                    <div key={t.id} className={`grid grid-cols-12 gap-2 items-end p-2 rounded-lg bg-white ${t.include ? "" : "opacity-50"}`}>
+                      <label className="col-span-1 flex items-center justify-center pb-2"><input type="checkbox" checked={t.include} onChange={(e) => updTxn(t.id, { include: e.target.checked })} /></label>
+                      <TextField label="Date" type="date" value={t.date} onChange={(v) => updTxn(t.id, { date: v })} className="col-span-3 sm:col-span-2" />
+                      <TextField label="Description" value={t.description} onChange={(v) => updTxn(t.id, { description: v })} className="col-span-8 sm:col-span-4" />
+                      <CategorySelect label="Category" value={t.category} categories={cats} onChange={(v) => updTxn(t.id, { category: v })} onAddCategory={addCat} className="col-span-6 sm:col-span-3" />
+                      <NumberField label="Amount" value={t.amount} onChange={(v) => updTxn(t.id, { amount: v })} className="col-span-6 sm:col-span-2" />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between items-center mt-3 pt-2 border-t border-stone-200">
+                  <span className="text-xs text-stone-400">{includedTxns.length} of {statementTxns.length} selected</span>
+                  <button disabled={includedTxns.length === 0} onClick={addStatementTxns} className="text-sm bg-teal-600 text-white px-4 py-1.5 rounded-lg hover:bg-teal-700 disabled:opacity-50">Add {includedTxns.length} transaction{includedTxns.length === 1 ? "" : "s"}</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {debts.length === 0 && <p className="text-sm text-stone-400">Add lines of credit, credit cards, or other consumer debt.</p>}
         <div className="space-y-3">
           {debts.map((x) => {
@@ -2464,8 +2523,6 @@ function Receipts({ data, setData, shared }) {
   const isExpanded = (id) => !!expanded[id];
   const openReceipt = (id) => setExpanded((s) => ({ ...s, [id]: true }));
   const closeReceipt = (id) => setExpanded((s) => { const n = { ...s }; delete n[id]; return n; });
-  const [statementBusy, setStatementBusy] = useState(false);
-  const [statementTxns, setStatementTxns] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -2523,24 +2580,6 @@ function Receipts({ data, setData, shared }) {
   const addCatValue = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
   const addCat = () => { addCatValue(newCat.trim()); setNewCat(""); };
   const delCat = (c) => setData((d) => ({ ...d, receiptCategories: d.receiptCategories.filter((x) => x !== c) }));
-
-  const onStatementFile = async (file) => {
-    if (!file) return;
-    setStatementBusy(true);
-    try {
-      const text = await extractAllPdfText(file);
-      const txns = parseStatementTransactions(text).map((t) => ({ ...t, category: categorizeTransaction(t.description, cats) }));
-      setStatementTxns(txns);
-    } catch (e) { setStatementTxns([]); }
-    setStatementBusy(false);
-  };
-  const updTxn = (id, patch) => setStatementTxns((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-  const includedTxns = (statementTxns || []).filter((t) => t.include);
-  const addStatementTxns = () => {
-    const toAdd = includedTxns.map((t) => ({ id: uid(), label: t.description, description: "", date: t.date, time: "", amount: t.amount, category: t.category, applyTo: "log", hasImage: false, source: "statement" }));
-    setData((d) => ({ ...d, receipts: [...toAdd, ...(d.receipts || [])] }));
-    setStatementTxns(null);
-  };
   const shown = filter === "All" ? receipts : receipts.filter((r) => r.category === filter);
   const shownTotal = shown.reduce((s, r) => s + num(r.amount), 0);
   const yearTotal = receipts.filter((r) => (r.date || "").slice(0, 4) === String(data.taxYear)).reduce((s, r) => s + num(r.amount), 0);
@@ -2551,45 +2590,9 @@ function Receipts({ data, setData, shared }) {
         <h2 className="font-medium text-stone-700">Receipts</h2>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowCats(!showCats)} className="text-sm text-stone-500 hover:text-stone-700">Categories</button>
-          {statementBusy ? (
-            <span className="flex items-center gap-1 text-sm text-stone-400"><Sparkles size={14} className="animate-pulse" /> Reading statement…</span>
-          ) : (
-            <label className="flex items-center gap-1 text-sm text-stone-600 hover:text-stone-800 cursor-pointer px-3 py-1.5 rounded-lg border border-stone-300 hover:border-stone-400"><Upload size={14} /> Import statement<input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => onStatementFile(e.target.files[0])} /></label>
-          )}
           <button onClick={addBlank} className="flex items-center gap-1 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Plus size={15} /> Add receipt</button>
         </div>
       </div>
-
-      {statementTxns !== null && (
-        <Card>
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="font-medium text-stone-700">Review statement transactions ({statementTxns.length} found)</h3>
-            <button onClick={() => setStatementTxns(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
-          </div>
-          {statementTxns.length === 0 ? (
-            <p className="text-sm text-stone-400">Couldn't find any transaction rows in that statement. Try a different file, or add receipts manually.</p>
-          ) : (
-            <>
-              <p className="text-xs text-stone-400 mb-2">Categorized automatically by merchant name (e.g. subscriptions grouped together). Fix anything off, then add the ones you want. Payments/credits start unchecked.</p>
-              <div className="space-y-1.5 max-h-[28rem] overflow-y-auto">
-                {statementTxns.map((t) => (
-                  <div key={t.id} className={`grid grid-cols-12 gap-2 items-end p-2 rounded-lg bg-stone-50 ${t.include ? "" : "opacity-50"}`}>
-                    <label className="col-span-1 flex items-center justify-center pb-2"><input type="checkbox" checked={t.include} onChange={(e) => updTxn(t.id, { include: e.target.checked })} /></label>
-                    <TextField label="Date" type="date" value={t.date} onChange={(v) => updTxn(t.id, { date: v })} className="col-span-3 sm:col-span-2" />
-                    <TextField label="Description" value={t.description} onChange={(v) => updTxn(t.id, { description: v })} className="col-span-8 sm:col-span-4" />
-                    <CategorySelect label="Category" value={t.category} categories={cats} onChange={(v) => updTxn(t.id, { category: v })} onAddCategory={addCatValue} className="col-span-6 sm:col-span-3" />
-                    <NumberField label="Amount" value={t.amount} onChange={(v) => updTxn(t.id, { amount: v })} className="col-span-6 sm:col-span-2" />
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-between items-center mt-3 pt-2 border-t border-stone-100">
-                <span className="text-xs text-stone-400">{includedTxns.length} of {statementTxns.length} selected</span>
-                <button disabled={includedTxns.length === 0} onClick={addStatementTxns} className="text-sm bg-teal-600 text-white px-4 py-1.5 rounded-lg hover:bg-teal-700 disabled:opacity-50">Add {includedTxns.length} transaction{includedTxns.length === 1 ? "" : "s"}</button>
-              </div>
-            </>
-          )}
-        </Card>
-      )}
       {showCats && (
         <Card>
           <h3 className="text-sm font-medium text-stone-600 mb-2">Customize categories</h3>
