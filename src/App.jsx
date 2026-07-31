@@ -1345,13 +1345,15 @@ export default function App() {
 
   const navButton = (t, closeOnClick) => {
     const Icon = t.icon;
+    const active = tab === t.id;
     return (
       <button
         key={t.id}
         onClick={() => { setTab(t.id); if (closeOnClick) setSidebarOpen(false); }}
-        className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm transition-colors ${tab === t.id ? "bg-teal-50 text-teal-700 font-medium" : "text-stone-500 hover:bg-stone-50 hover:text-stone-700"}`}
+        className={`relative w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm transition-colors ${active ? "bg-teal-500/15 text-teal-300 font-medium" : "text-stone-400 hover:bg-white/5 hover:text-white"}`}
       >
-        <Icon size={18} />
+        {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-teal-400" />}
+        <Icon size={18} className={active ? "text-teal-300" : ""} />
         <span>{t.label}</span>
       </button>
     );
@@ -1360,17 +1362,17 @@ export default function App() {
   return (
     <div className="min-h-screen bg-stone-50 text-stone-800 lg:flex">
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 bg-white border-r border-stone-200 h-screen sticky top-0">
-        <div className="flex items-center gap-2.5 px-5 py-5">
-          <Logo size={32} tone="brand" />
-          <span className="text-lg font-semibold text-stone-900 tracking-tight">Cabintree</span>
+      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 bg-stone-900 h-screen sticky top-0 shadow-xl">
+        <div className="flex items-center gap-2.5 px-5 py-5 border-b border-white/5">
+          <Logo size={32} />
+          <span className="text-lg font-semibold text-white tracking-tight">Cabintree</span>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
           {tabs.map((t) => navButton(t, false))}
         </nav>
-        <div className="border-t border-stone-200 p-3 space-y-2">
+        <div className="border-t border-white/5 p-3 space-y-2">
           <HouseholdSwitcher memberships={memberships} activeHouseholdId={householdId} onSwitch={switchHousehold} onCreateFamily={createFamilyHousehold} onLeave={leaveHousehold} openUpward />
-          <button onClick={handleSignOut} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 text-xs transition"><LogOut size={14} /> Sign out</button>
+          <button onClick={handleSignOut} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/5 text-stone-400 hover:text-white text-xs transition"><LogOut size={14} /> Sign out</button>
         </div>
       </aside>
 
@@ -1386,20 +1388,20 @@ export default function App() {
       {/* Mobile drawer */}
       <div className={`lg:hidden fixed inset-0 z-30 transition-opacity ${sidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
         <div className="absolute inset-0 bg-stone-900/40" onClick={() => setSidebarOpen(false)} />
-        <div className={`absolute top-0 left-0 h-full w-72 max-w-[85vw] bg-white shadow-xl flex flex-col transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
-          <div className="flex items-center justify-between px-5 py-5">
+        <div className={`absolute top-0 left-0 h-full w-72 max-w-[85vw] bg-stone-900 shadow-xl flex flex-col transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+          <div className="flex items-center justify-between px-5 py-5 border-b border-white/5">
             <div className="flex items-center gap-2.5">
-              <Logo size={30} tone="brand" />
-              <span className="text-lg font-semibold text-stone-900 tracking-tight">Cabintree</span>
+              <Logo size={30} />
+              <span className="text-lg font-semibold text-white tracking-tight">Cabintree</span>
             </div>
-            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="p-1.5 rounded-lg hover:bg-stone-100 text-stone-500"><X size={20} /></button>
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="p-1.5 rounded-lg hover:bg-white/5 text-stone-400 hover:text-white"><X size={20} /></button>
           </div>
-          <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
+          <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
             {tabs.map((t) => navButton(t, true))}
           </nav>
-          <div className="border-t border-stone-200 p-3 space-y-2">
+          <div className="border-t border-white/5 p-3 space-y-2">
             <HouseholdSwitcher memberships={memberships} activeHouseholdId={householdId} onSwitch={switchHousehold} onCreateFamily={createFamilyHousehold} onLeave={leaveHousehold} openUpward />
-            <button onClick={handleSignOut} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 text-xs transition"><LogOut size={14} /> Sign out</button>
+            <button onClick={handleSignOut} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/5 text-stone-400 hover:text-white text-xs transition"><LogOut size={14} /> Sign out</button>
           </div>
         </div>
       </div>
