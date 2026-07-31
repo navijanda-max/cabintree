@@ -32,15 +32,20 @@ const ONBOARD_KEY = "cabintree-onboarded-v1";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 
+// RRSP/TFSA/FHSA contribution room is strictly per-individual under CRA rules (no such thing
+// as a joint RRSP), so each is a {p1, p2} pair. RESP room is per-beneficiary-child rather than
+// per-contributing-parent, so it stays a single shared account. nonreg accounts can be
+// individual or joint, so those get a plain "owner" tag instead (see emptyNonreg).
+const emptyRegisteredAccount = (room = 0) => ({ room, value: 0, contributions: [] });
 const emptyInvestments = () => ({
-  rrsp: { room: 0, value: 0, contributions: [] },
-  tfsa: { room: 0, value: 0, contributions: [] },
+  rrsp: { p1: emptyRegisteredAccount(), p2: emptyRegisteredAccount() },
+  tfsa: { p1: emptyRegisteredAccount(), p2: emptyRegisteredAccount() },
   resp: { value: 0, contributions: [] },
-  fhsa: { room: 8000, value: 0, contributions: [] },
+  fhsa: { p1: emptyRegisteredAccount(8000), p2: emptyRegisteredAccount(8000) },
   nonreg: [],
 });
 const emptyProperty = () => ({
-  id: uid(), name: "New property", address: "", ownershipPct: 100,
+  id: uid(), name: "New property", address: "", ownershipPct: 100, owner: "p1",
   purchasePrice: 0, purchaseDate: "", currentValue: 0, valueUpdated: "",
   mortgage: { balance: 0, rate: 0, payment: 0 },
   occupancy: "full", personalUsePct: 0, tenants: [], expenses: {}, repairs: [],
@@ -392,23 +397,27 @@ const billMonthly = (b) => {
   }
 };
 const contribInYear = (list, year) => (list || []).filter((c) => (c.date || "").slice(0, 4) === String(year)).reduce((s, c) => s + num(c.amount), 0);
+const registeredAcctTotal = (acct) => num(acct?.p1?.value) + num(acct?.p2?.value);
 function investTotal(inv) {
   if (!inv) return 0;
-  return num(inv.rrsp?.value) + num(inv.tfsa?.value) + num(inv.resp?.value) + num(inv.fhsa?.value) + (inv.nonreg || []).reduce((s, n) => s + num(n.value), 0);
+  return registeredAcctTotal(inv.rrsp) + registeredAcctTotal(inv.tfsa) + num(inv.resp?.value) + registeredAcctTotal(inv.fhsa) + (inv.nonreg || []).reduce((s, n) => s + num(n.value), 0);
 }
 function computeTotals(data) {
   const props = data.properties || [];
+  const vehicles = data.vehicles || [];
   const investments = investTotal(data.investments);
   const propValue = props.reduce((s, p) => s + num(p.currentValue), 0);
+  const vehicleValue = vehicles.reduce((s, v) => s + num(v.currentValue), 0);
   const accountsCash = (data.household.accounts || []).reduce((s, a) => s + num(a.balance), 0);
   const cash = num(data.household.cash) + accountsCash, other = num(data.household.otherAssets);
   const foreignAssets = (data.household.foreignAssets || []).reduce((s, a) => s + num(a.cad), 0);
-  const assets = propValue + cash + other + investments + foreignAssets;
+  const assets = propValue + vehicleValue + cash + other + investments + foreignAssets;
   const mortgage = props.reduce((s, p) => s + num(p.mortgage.balance), 0);
-  const carLoans = (data.vehicles || []).reduce((s, v) => s + num(v.loanBalance), 0);
+  const carLoans = vehicles.reduce((s, v) => s + num(v.loanBalance), 0);
   const consumer = (data.debts || []).reduce((s, x) => s + num(x.balance), 0);
   const debt = mortgage + carLoans + consumer;
-  return { assets, debt, netWorth: assets - debt, equity: props.reduce((s, p) => s + propEquity(p), 0), investments, savings: cash + investments, mortgage, carLoans, consumer };
+  const vehicleEquity = vehicles.reduce((s, v) => s + (num(v.currentValue) - num(v.loanBalance)), 0);
+  return { assets, debt, netWorth: assets - debt, equity: props.reduce((s, p) => s + propEquity(p), 0), vehicleEquity, investments, savings: cash + investments, mortgage, carLoans, consumer };
 }
 function computeChildcare(data, year) {
   const childLimit = (c) => {
@@ -434,12 +443,28 @@ const DEFAULTS = () => ({
   taxEstimate: { p1: emptyTaxPerson(), p2: emptyTaxPerson() },
   snapshots: [], taxYear: new Date().getFullYear(),
 });
+// Pre-per-person accounts stored {room, value, contributions} directly on investments.rrsp/tfsa/fhsa.
+// Detect that old flat shape and move it under .p1 (assume it was tracked for the first person),
+// leaving .p2 empty — no data lost, reassignable afterward via the account's owner picker.
+function migrateRegisteredAcct(old, defaultRoom = 0) {
+  if (!old) return { p1: emptyRegisteredAccount(defaultRoom), p2: emptyRegisteredAccount(defaultRoom) };
+  if (old.p1 || old.p2) return { p1: { ...emptyRegisteredAccount(defaultRoom), ...(old.p1 || {}) }, p2: { ...emptyRegisteredAccount(defaultRoom), ...(old.p2 || {}) } };
+  return { p1: { room: num(old.room), value: num(old.value), contributions: old.contributions || [] }, p2: emptyRegisteredAccount(defaultRoom) };
+}
 function applyDefaults(p) {
   const base = DEFAULTS();
+  const inv = p.investments || {};
   return {
     ...base, ...p,
     household: { ...base.household, ...(p.household || {}) },
-    investments: { ...emptyInvestments(), ...(p.investments || {}) },
+    investments: {
+      ...emptyInvestments(),
+      ...inv,
+      rrsp: migrateRegisteredAcct(inv.rrsp),
+      tfsa: migrateRegisteredAcct(inv.tfsa),
+      fhsa: migrateRegisteredAcct(inv.fhsa, 8000),
+      resp: { ...emptyInvestments().resp, ...(inv.resp || {}) },
+    },
     taxEstimate: { p1: { ...emptyTaxPerson(), ...(p.taxEstimate?.p1 || {}) }, p2: { ...emptyTaxPerson(), ...(p.taxEstimate?.p2 || {}) } },
     receiptCategories: Array.from(new Set([...(p.receiptCategories || base.receiptCategories), ...base.receiptCategories])),
   };
@@ -1419,7 +1444,7 @@ export default function App() {
 
         <main className="p-4 sm:p-6 max-w-5xl mx-auto">
           {tab === "dashboard" && <Dashboard data={data} setData={setData} />}
-          {tab === "properties" && <Properties properties={data.properties} addProperty={addProperty} updProperty={updProperty} delProperty={delProperty} />}
+          {tab === "properties" && <Properties properties={data.properties} household={data.household} addProperty={addProperty} updProperty={updProperty} delProperty={delProperty} />}
           {tab === "investments" && <Investments data={data} setData={setData} />}
           {tab === "debts" && <DebtsBills data={data} setData={setData} />}
           {tab === "budget" && <Budget data={data} setData={setData} />}
@@ -1501,6 +1526,37 @@ function CategorySelect({ label = "Category", value, categories, onChange, onAdd
     </label>
   );
 }
+// Whether a household has a second person entered (vs. a solo/personal account) — same
+// heuristic IncomeTracker already uses to decide whether to show a second person's card.
+const hasP2 = (household) => !!(household?.p2Name && household.p2Name !== "Spouse/Partner");
+
+// Compact owner select for an individual item (property/vehicle/debt/investment row). Only
+// rendered by callers when hasP2(household) is true, so solo accounts never see this.
+function OwnerPicker({ value, onChange, household, className = "", joint = true }) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="text-xs text-stone-500">Owner</span>
+      <select value={value || (joint ? "joint" : "p1")} onChange={(e) => onChange(e.target.value)} className="w-full mt-0.5 px-1 py-1.5 text-xs border border-stone-300 rounded-lg bg-white">
+        <option value="p1">{household.p1Name || "Me"}</option>
+        <option value="p2">{household.p2Name || "Partner"}</option>
+        {joint && <option value="joint">Joint</option>}
+      </select>
+    </label>
+  );
+}
+
+// Filter pill row shown above an ownable list. Only rendered by callers when hasP2(household).
+function OwnerFilter({ value, onChange, household, joint = true }) {
+  const opts = [{ v: "all", l: "All" }, { v: "p1", l: household.p1Name || "Me" }, { v: "p2", l: household.p2Name || "Partner" }, ...(joint ? [{ v: "joint", l: "Joint" }] : [])];
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {opts.map((o) => (
+        <button key={o.v} onClick={() => onChange(o.v)} className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${value === o.v ? "bg-teal-600 text-white border-teal-600" : "bg-white text-stone-500 border-stone-300 hover:border-stone-400"}`}>{o.l}</button>
+      ))}
+    </div>
+  );
+}
+
 function Stat({ label, value, sub, tone = "slate" }) {
   const tones = { slate: "text-stone-800", green: "text-emerald-600", red: "text-rose-600" };
   return (
@@ -1742,8 +1798,9 @@ function Dashboard({ data, setData }) {
   const monthlyBurn = mortgagePay + carPay + debtPay + billsMonthly;
   const liquidCash = num(data.household.cash) + (data.household.accounts || []).reduce((s, a) => s + num(a.balance), 0);
   const emergencyTarget = monthlyBurn * 3;
-  const tfsaRoomLeft = num(data.investments?.tfsa?.room) - contribInYear(data.investments?.tfsa?.contributions, data.taxYear);
-  const rrspRoomLeft = num(data.investments?.rrsp?.room) - contribInYear(data.investments?.rrsp?.contributions, data.taxYear);
+  const acctRoomLeft = (acct, year) => (num(acct?.p1?.room) - contribInYear(acct?.p1?.contributions, year)) + (num(acct?.p2?.room) - contribInYear(acct?.p2?.contributions, year));
+  const tfsaRoomLeft = acctRoomLeft(data.investments?.tfsa, data.taxYear);
+  const rrspRoomLeft = acctRoomLeft(data.investments?.rrsp, data.taxYear);
   if (monthlyBurn > 0 && liquidCash > emergencyTarget + 5000 && (tfsaRoomLeft > 0 || rrspRoomLeft > 0)) {
     const room = Math.max(tfsaRoomLeft, rrspRoomLeft);
     const excess = liquidCash - emergencyTarget;
@@ -2037,17 +2094,21 @@ function YearOverview({ data }) {
 }
 
 /* ---------- Properties ---------- */
-function Properties({ properties, addProperty, updProperty, delProperty }) {
+function Properties({ properties, household, addProperty, updProperty, delProperty }) {
   const [open, setOpen] = useState(null);
-  const chartData = properties.map((p) => ({ name: p.name || "Property", value: num(p.currentValue), mortgage: num(p.mortgage.balance), equity: propEquity(p) }));
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const showOwner = hasP2(household);
+  const shown = ownerFilter === "all" ? properties : properties.filter((p) => (p.owner || "joint") === ownerFilter);
+  const chartData = shown.map((p) => ({ name: p.name || "Property", value: num(p.currentValue), mortgage: num(p.mortgage.balance), equity: propEquity(p) }));
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center">
         <h2 className="font-medium text-stone-700">Rental properties</h2>
         <button onClick={addProperty} className="flex items-center gap-1 text-sm bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700"><Plus size={15} /> Add property</button>
       </div>
+      {showOwner && properties.length > 0 && <OwnerFilter value={ownerFilter} onChange={setOwnerFilter} household={household} />}
       {properties.length === 0 && <p className="text-sm text-stone-400">No properties yet. Add your first one above.</p>}
-      {properties.length > 0 && (
+      {shown.length > 0 && (
         <ChartCard title="Value vs. mortgage by property">
           <ResponsiveContainer width="100%" height={Math.max(140, chartData.length * 56)}>
             <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
@@ -2061,11 +2122,11 @@ function Properties({ properties, addProperty, updProperty, delProperty }) {
           </ResponsiveContainer>
         </ChartCard>
       )}
-      {properties.map((p) => <PropertyCard key={p.id} p={p} open={open === p.id} toggle={() => setOpen(open === p.id ? null : p.id)} upd={(patch) => updProperty(p.id, patch)} del={() => delProperty(p.id)} />)}
+      {shown.map((p) => <PropertyCard key={p.id} p={p} household={household} showOwner={showOwner} open={open === p.id} toggle={() => setOpen(open === p.id ? null : p.id)} upd={(patch) => updProperty(p.id, patch)} del={() => delProperty(p.id)} />)}
     </div>
   );
 }
-function PropertyCard({ p, open, toggle, upd, del }) {
+function PropertyCard({ p, household, showOwner, open, toggle, upd, del }) {
   const eq = propEquity(p);
   const setMortgage = (patch) => upd({ mortgage: { ...p.mortgage, ...patch } });
   const setExpense = (code, v) => upd({ expenses: { ...p.expenses, [code]: v } });
@@ -2096,6 +2157,7 @@ function PropertyCard({ p, open, toggle, upd, del }) {
             <NumberField label="Your ownership %" prefix="" value={p.ownershipPct} onChange={(v) => upd({ ownershipPct: v })} />
             <NumberField label="Current value (manual)" value={p.currentValue} onChange={(v) => upd({ currentValue: v })} />
             <TextField label="Value last updated" type="date" value={p.valueUpdated} onChange={(v) => upd({ valueUpdated: v })} />
+            {showOwner && <OwnerPicker value={p.owner} onChange={(v) => upd({ owner: v })} household={household} />}
             <label className="block"><span className="text-xs text-stone-500">Occupancy</span>
               <select value={p.occupancy} onChange={(e) => upd({ occupancy: e.target.value, personalUsePct: e.target.value === "full" ? 0 : p.personalUsePct })} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white">
                 <option value="full">Fully rented out</option><option value="partial">I live in part of it</option>
@@ -2208,33 +2270,86 @@ function ContribList({ list, onAdd, onUpd, onDel, label }) {
 function Investments({ data, setData }) {
   const year = data.taxYear;
   const inv = data.investments || emptyInvestments();
-  const setInv = (key, patch) => setData((d) => ({ ...d, investments: { ...d.investments, [key]: { ...d.investments[key], ...patch } } }));
-  const contribOps = (key) => ({
-    onAdd: () => setInv(key, { contributions: [...(inv[key].contributions || []), { id: uid(), date: "", amount: 0 }] }),
-    onUpd: (id, patch) => setInv(key, { contributions: inv[key].contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) }),
-    onDel: (id) => setInv(key, { contributions: inv[key].contributions.filter((c) => c.id !== id) }),
+  const household = data.household;
+  const showP2 = hasP2(household);
+  const people = showP2 ? [{ key: "p1", name: household.p1Name || "Me" }, { key: "p2", name: household.p2Name || "Partner" }] : [{ key: "p1", name: household.p1Name || "Me" }];
+
+  const setResp = (patch) => setData((d) => ({ ...d, investments: { ...d.investments, resp: { ...d.investments.resp, ...patch } } }));
+  const respOps = {
+    onAdd: () => setResp({ contributions: [...(inv.resp.contributions || []), { id: uid(), date: "", amount: 0 }] }),
+    onUpd: (id, patch) => setResp({ contributions: inv.resp.contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) }),
+    onDel: (id) => setResp({ contributions: inv.resp.contributions.filter((c) => c.id !== id) }),
+  };
+
+  // RRSP/TFSA/FHSA are per-person accounts ({p1, p2}) — setAcct/contribOps address a person's own account.
+  const setAcct = (key, person, patch) => setData((d) => ({ ...d, investments: { ...d.investments, [key]: { ...d.investments[key], [person]: { ...d.investments[key][person], ...patch } } } }));
+  const contribOps = (key, person) => ({
+    onAdd: () => setAcct(key, person, { contributions: [...(inv[key][person]?.contributions || []), { id: uid(), date: "", amount: 0 }] }),
+    onUpd: (id, patch) => setAcct(key, person, { contributions: inv[key][person].contributions.map((c) => (c.id === id ? { ...c, ...patch } : c)) }),
+    onDel: (id) => setAcct(key, person, { contributions: inv[key][person].contributions.filter((c) => c.id !== id) }),
   });
-  const rrspThisYear = contribInYear(inv.rrsp.contributions, year);
-  const tfsaThisYear = contribInYear(inv.tfsa.contributions, year);
-  const tfsaRemaining = num(inv.tfsa.room) - tfsaThisYear;
+  const acctThisYear = (key, person) => contribInYear(inv[key]?.[person]?.contributions, year);
+  const acctSum = (key, pick) => people.reduce((s, pp) => s + pick(inv[key]?.[pp.key] || emptyRegisteredAccount(), pp.key), 0);
+
+  const rrspThisYear = acctSum("rrsp", (a) => contribInYear(a.contributions, year));
+  const rrspValueTotal = acctSum("rrsp", (a) => num(a.value));
+  const tfsaThisYear = acctSum("tfsa", (a) => contribInYear(a.contributions, year));
+  const tfsaValueTotal = acctSum("tfsa", (a) => num(a.value));
+  const tfsaRemaining = acctSum("tfsa", (a) => num(a.room)) - tfsaThisYear;
   const respThisYear = contribInYear(inv.resp.contributions, year);
   const cesg = Math.min(respThisYear * 0.2, 500);
-  const fhsa = inv.fhsa || { room: 8000, value: 0, contributions: [] };
-  const fhsaThisYear = contribInYear(fhsa.contributions, year);
-  const fhsaRemaining = num(fhsa.room) - fhsaThisYear;
-  const addNonreg = () => setData((d) => ({ ...d, investments: { ...d.investments, nonreg: [...d.investments.nonreg, { id: uid(), name: "", value: 0, bookCost: 0 }] } }));
+  const fhsaThisYear = acctSum("fhsa", (a) => contribInYear(a.contributions, year));
+  const fhsaValueTotal = acctSum("fhsa", (a) => num(a.value));
+
+  const [nonregOwnerFilter, setNonregOwnerFilter] = useState("all");
+  const addNonreg = () => setData((d) => ({ ...d, investments: { ...d.investments, nonreg: [...d.investments.nonreg, { id: uid(), name: "", value: 0, bookCost: 0, owner: "p1" }] } }));
   const updNonreg = (id, patch) => setData((d) => ({ ...d, investments: { ...d.investments, nonreg: d.investments.nonreg.map((n) => (n.id === id ? { ...n, ...patch } : n)) } }));
   const delNonreg = (id) => setData((d) => ({ ...d, investments: { ...d.investments, nonreg: d.investments.nonreg.filter((n) => n.id !== id) } }));
-  const nonregValue = inv.nonreg.reduce((s, n) => s + num(n.value), 0);
-  const nonregGain = inv.nonreg.reduce((s, n) => s + (num(n.value) - num(n.bookCost)), 0);
+  const shownNonreg = nonregOwnerFilter === "all" ? inv.nonreg : inv.nonreg.filter((n) => (n.owner || "joint") === nonregOwnerFilter);
+  const nonregValue = shownNonreg.reduce((s, n) => s + num(n.value), 0);
+  const nonregGain = shownNonreg.reduce((s, n) => s + (num(n.value) - num(n.bookCost)), 0);
   const allocation = [
-    { name: "RRSP", value: num(inv.rrsp.value) },
-    { name: "TFSA", value: num(inv.tfsa.value) },
+    { name: "RRSP", value: rrspValueTotal },
+    { name: "TFSA", value: tfsaValueTotal },
     { name: "RESP", value: num(inv.resp.value) },
-    { name: "FHSA", value: num(fhsa.value) },
-    { name: "Non-registered", value: nonregValue },
+    { name: "FHSA", value: fhsaValueTotal },
+    { name: "Non-registered", value: inv.nonreg.reduce((s, n) => s + num(n.value), 0) },
   ].filter((a) => a.value > 0);
   const allocationTotal = allocation.reduce((s, a) => s + a.value, 0);
+
+  // Shared layout for RRSP/TFSA/FHSA: one column for a solo account, two side-by-side
+  // per-person columns plus a combined total for a family household.
+  const registeredCard = (title, key, roomLabel, note) => {
+    const combinedValue = acctSum(key, (a) => num(a.value));
+    return (
+      <Card>
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="font-medium text-stone-700">{title}</h3>
+          {showP2 && <span className="text-xs text-stone-400">Combined: {fmt(combinedValue)}</span>}
+        </div>
+        <div className={showP2 ? "grid sm:grid-cols-2 gap-x-5 gap-y-4" : ""}>
+          {people.map((pp) => {
+            const acct = inv[key]?.[pp.key] || emptyRegisteredAccount();
+            const thisYear = acctThisYear(key, pp.key);
+            const roomLeft = num(acct.room) - thisYear;
+            return (
+              <div key={pp.key} className={showP2 && pp.key === "p2" ? "sm:border-l sm:border-stone-100 sm:pl-5" : ""}>
+                {showP2 && <div className="text-xs font-medium text-stone-500 mb-2">{pp.name}</div>}
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <NumberField label={roomLabel} value={acct.room} onChange={(v) => setAcct(key, pp.key, { room: v })} />
+                  <NumberField label="Current value" value={acct.value} onChange={(v) => setAcct(key, pp.key, { value: v })} />
+                  <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(thisYear)}</div></div>
+                  <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Room left</div><div className={`font-medium text-sm ${roomLeft < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(roomLeft)}</div></div>
+                </div>
+                <ContribList list={acct.contributions} label="Contributions" {...contribOps(key, pp.key)} />
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-xs text-stone-400 mt-2">{note}</p>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -2267,64 +2382,36 @@ function Investments({ data, setData }) {
           </div>
         )}
       </ChartCard>
-      <Card>
-        <h3 className="font-medium text-stone-700 mb-3">RRSP: Retirement Savings</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-          <NumberField label="Deduction limit (from NOA)" value={inv.rrsp.room} onChange={(v) => setInv("rrsp", { room: v })} />
-          <NumberField label="Current value" value={inv.rrsp.value} onChange={(v) => setInv("rrsp", { value: v })} />
-          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(rrspThisYear)}</div></div>
-          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Room left</div><div className={`font-medium text-sm ${num(inv.rrsp.room) - rrspThisYear < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(num(inv.rrsp.room) - rrspThisYear)}</div></div>
-        </div>
-        <ContribList list={inv.rrsp.contributions} label="Contributions" {...contribOps("rrsp")} />
-        <p className="text-xs text-stone-400 mt-2">Reduces taxable income (line 20800). 2026 dollar-limit ceiling is $33,810; your limit is on your Notice of Assessment.</p>
-      </Card>
-      <Card>
-        <h3 className="font-medium text-stone-700 mb-3">TFSA: Tax-Free Savings</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-          <NumberField label="Contribution room" value={inv.tfsa.room} onChange={(v) => setInv("tfsa", { room: v })} />
-          <NumberField label="Current value" value={inv.tfsa.value} onChange={(v) => setInv("tfsa", { value: v })} />
-          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(tfsaThisYear)}</div></div>
-          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Room left</div><div className={`font-medium text-sm ${tfsaRemaining < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(tfsaRemaining)}</div></div>
-        </div>
-        <ContribList list={inv.tfsa.contributions} label="Contributions" {...contribOps("tfsa")} />
-        <p className="text-xs text-stone-400 mt-2">Tax-free growth. Annual limit $7,000 (2024–2026); over-contributions cost 1%/month.</p>
-      </Card>
+      {registeredCard("RRSP: Retirement Savings", "rrsp", "Deduction limit (from NOA)", "Reduces taxable income (line 20800). 2026 dollar-limit ceiling is $33,810; your limit is on your Notice of Assessment. Room is per-person, set by the CRA.")}
+      {registeredCard("TFSA: Tax-Free Savings", "tfsa", "Contribution room", "Tax-free growth. Annual limit $7,000 (2024–2026); over-contributions cost 1%/month. Room is per-person; there's no such thing as a joint TFSA.")}
       <Card>
         <h3 className="font-medium text-stone-700 mb-3">RESP: Education Savings</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-          <NumberField label="Current value" value={inv.resp.value} onChange={(v) => setInv("resp", { value: v })} />
+          <NumberField label="Current value" value={inv.resp.value} onChange={(v) => setResp({ value: v })} />
           <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(respThisYear)}</div></div>
           <div className="bg-emerald-50 rounded-lg p-2 text-xs"><div className="text-emerald-600">Est. CESG {year}</div><div className="font-medium text-sm text-emerald-700">{fmt(cesg)}</div></div>
           <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">To max grant</div><div className="font-medium text-sm">{fmt(Math.max(0, 2500 - respThisYear))}</div></div>
         </div>
-        <ContribList list={inv.resp.contributions} label="Contributions" {...contribOps("resp")} />
-        <p className="text-xs text-stone-400 mt-2">Government adds 20% (up to $500/yr per child, $7,200 lifetime). Lifetime contribution cap $50,000 per child.</p>
+        <ContribList list={inv.resp.contributions} label="Contributions" {...respOps} />
+        <p className="text-xs text-stone-400 mt-2">Government adds 20% (up to $500/yr per child, $7,200 lifetime). Lifetime contribution cap $50,000 per child. Tracked once per household since RESP room is per beneficiary child, not per contributing parent.</p>
       </Card>
-      <Card>
-        <h3 className="font-medium text-stone-700 mb-3">FHSA: First Home Savings Account</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-          <NumberField label="Contribution room" value={fhsa.room} onChange={(v) => setInv("fhsa", { room: v })} />
-          <NumberField label="Current value" value={fhsa.value} onChange={(v) => setInv("fhsa", { value: v })} />
-          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(fhsaThisYear)}</div></div>
-          <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Room left</div><div className={`font-medium text-sm ${fhsaRemaining < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(fhsaRemaining)}</div></div>
-        </div>
-        <ContribList list={fhsa.contributions} label="Contributions" {...contribOps("fhsa")} />
-        <p className="text-xs text-stone-400 mt-2">Best of both worlds for a first home: contributions are tax-deductible like an RRSP (line 20805) and withdrawals for a qualifying home are tax-free like a TFSA. $8,000/year, $40,000 lifetime. Carry forward up to $8,000 of unused room.</p>
-      </Card>
+      {registeredCard("FHSA: First Home Savings Account", "fhsa", "Contribution room", "Best of both worlds for a first home: contributions are tax-deductible like an RRSP (line 20805) and withdrawals for a qualifying home are tax-free like a TFSA. $8,000/year, $40,000 lifetime. Carry forward up to $8,000 of unused room. Room is per-person.")}
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Non-registered investments</h3><button onClick={addNonreg} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add holding</button></div>
+        {showP2 && inv.nonreg.length > 0 && <div className="mb-3"><OwnerFilter value={nonregOwnerFilter} onChange={setNonregOwnerFilter} household={household} /></div>}
         {inv.nonreg.length === 0 && <p className="text-sm text-stone-400">Add taxable holdings. Book cost tracks unrealized gains.</p>}
         <div className="space-y-2">
-          {inv.nonreg.map((n) => (
+          {shownNonreg.map((n) => (
             <div key={n.id} className="grid grid-cols-12 gap-2 items-end">
-              <TextField label="Holding" value={n.name} onChange={(v) => updNonreg(n.id, { name: v })} className="col-span-5" />
-              <NumberField label="Market value" value={n.value} onChange={(v) => updNonreg(n.id, { value: v })} className="col-span-3" />
-              <NumberField label="Book cost" value={n.bookCost} onChange={(v) => updNonreg(n.id, { bookCost: v })} className="col-span-3" />
+              <TextField label="Holding" value={n.name} onChange={(v) => updNonreg(n.id, { name: v })} className={showP2 ? "col-span-4" : "col-span-5"} />
+              <NumberField label="Market value" value={n.value} onChange={(v) => updNonreg(n.id, { value: v })} className={showP2 ? "col-span-3" : "col-span-3"} />
+              <NumberField label="Book cost" value={n.bookCost} onChange={(v) => updNonreg(n.id, { bookCost: v })} className={showP2 ? "col-span-2" : "col-span-3"} />
+              {showP2 && <OwnerPicker value={n.owner} onChange={(v) => updNonreg(n.id, { owner: v })} household={household} className="col-span-2" />}
               <button onClick={() => delNonreg(n.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
             </div>
           ))}
         </div>
-        {inv.nonreg.length > 0 && <p className="text-sm text-stone-600 mt-3 pt-2 border-t border-stone-100">Value {fmt(nonregValue)} · Unrealized gain <span className={nonregGain >= 0 ? "text-emerald-600" : "text-rose-600"}>{fmt(nonregGain)}</span> <span className="text-xs text-stone-400">(50% of realized gains taxable)</span></p>}
+        {shownNonreg.length > 0 && <p className="text-sm text-stone-600 mt-3 pt-2 border-t border-stone-100">Value {fmt(nonregValue)} · Unrealized gain <span className={nonregGain >= 0 ? "text-emerald-600" : "text-rose-600"}>{fmt(nonregGain)}</span> <span className="text-xs text-stone-400">(50% of realized gains taxable)</span></p>}
       </Card>
     </div>
   );
@@ -2353,20 +2440,24 @@ function DebtsBills({ data, setData }) {
     setData((d) => ({ ...d, receipts: [...toAdd, ...(d.receipts || [])] }));
     setStatementTxns(null);
   };
+  const household = data.household;
+  const showOwner = hasP2(household);
+  const [debtOwnerFilter, setDebtOwnerFilter] = useState("all");
   const debts = data.debts || [];
-  const addDebt = () => setData((d) => ({ ...d, debts: [...(d.debts || []), { id: uid(), name: "", type: "Credit card", balance: 0, limit: 0, rate: 0, payment: 0 }] }));
+  const addDebt = () => setData((d) => ({ ...d, debts: [...(d.debts || []), { id: uid(), name: "", type: "Credit card", balance: 0, limit: 0, rate: 0, payment: 0, owner: "p1" }] }));
   const updDebt = (id, patch) => setData((d) => ({ ...d, debts: d.debts.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
   const delDebt = (id) => setData((d) => ({ ...d, debts: d.debts.filter((x) => x.id !== id) }));
+  const shownDebts = debtOwnerFilter === "all" ? debts : debts.filter((x) => (x.owner || "joint") === debtOwnerFilter);
   const bills = data.bills || [];
   const addBill = () => setData((d) => ({ ...d, bills: [...(d.bills || []), { id: uid(), name: "", amount: 0, category: "Phone/Internet", frequency: "monthly" }] }));
   const updBill = (id, patch) => setData((d) => ({ ...d, bills: d.bills.map((b) => (b.id === id ? { ...b, ...patch } : b)) }));
   const delBill = (id) => setData((d) => ({ ...d, bills: d.bills.filter((b) => b.id !== id) }));
-  const totalDebt = debts.reduce((s, x) => s + num(x.balance), 0);
-  const totalDebtPay = debts.reduce((s, x) => s + num(x.payment), 0);
-  const monthlyInterest = debts.reduce((s, x) => s + num(x.balance) * (num(x.rate) / 100 / 12), 0);
+  const totalDebt = shownDebts.reduce((s, x) => s + num(x.balance), 0);
+  const totalDebtPay = shownDebts.reduce((s, x) => s + num(x.payment), 0);
+  const monthlyInterest = shownDebts.reduce((s, x) => s + num(x.balance) * (num(x.rate) / 100 / 12), 0);
   const billsMonthly = bills.reduce((s, b) => s + billMonthly(b), 0);
   const debtByType = {};
-  debts.forEach((x) => { if (num(x.balance) > 0) debtByType[x.type] = (debtByType[x.type] || 0) + num(x.balance); });
+  shownDebts.forEach((x) => { if (num(x.balance) > 0) debtByType[x.type] = (debtByType[x.type] || 0) + num(x.balance); });
   const debtComposition = Object.entries(debtByType).map(([name, value]) => ({ name, value }));
 
   return (
@@ -2411,6 +2502,7 @@ function DebtsBills({ data, setData }) {
             <button onClick={addDebt} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add debt</button>
           </div>
         </div>
+        {showOwner && debts.length > 0 && <div className="mb-3"><OwnerFilter value={debtOwnerFilter} onChange={setDebtOwnerFilter} household={household} /></div>}
         {statementTxns !== null && (
           <div className="mb-3 bg-stone-50 rounded-xl p-3">
             <div className="flex justify-between items-center mb-2">
@@ -2443,7 +2535,7 @@ function DebtsBills({ data, setData }) {
         )}
         {debts.length === 0 && <p className="text-sm text-stone-400">Add lines of credit, credit cards, or other consumer debt.</p>}
         <div className="space-y-3">
-          {debts.map((x) => {
+          {shownDebts.map((x) => {
             const util = num(x.limit) ? Math.min(100, (num(x.balance) / num(x.limit)) * 100) : 0;
             return (
               <div key={x.id} className="bg-stone-50 rounded-xl p-3">
@@ -2458,6 +2550,11 @@ function DebtsBills({ data, setData }) {
                   <NumberField label="Pmt/mo" value={x.payment} onChange={(v) => updDebt(x.id, { payment: v })} className="col-span-3 sm:col-span-1" />
                   <button onClick={() => delDebt(x.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
                 </div>
+                {showOwner && (
+                  <div className="grid grid-cols-12 gap-2 items-end mt-2">
+                    <OwnerPicker value={x.owner} onChange={(v) => updDebt(x.id, { owner: v })} household={household} className="col-span-6 sm:col-span-3" />
+                  </div>
+                )}
                 {num(x.limit) > 0 && (
                   <div className="mt-2"><div className="flex justify-between text-xs text-stone-400 mb-1"><span>Utilization</span><span className={util > 30 ? "text-amber-600" : ""}>{util.toFixed(0)}%</span></div>
                     <div className="w-full bg-stone-200 rounded-full h-2 overflow-hidden"><div className={`h-full rounded-full ${util > 70 ? "bg-rose-500" : util > 30 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${util}%` }} /></div>
@@ -2744,22 +2841,34 @@ function Childcare({ data, setData }) {
 
 /* ---------- Vehicles ---------- */
 function Vehicles({ data, setData }) {
-  const add = () => setData((d) => ({ ...d, vehicles: [...d.vehicles, { id: uid(), name: "", loanBalance: 0, rate: 0, payment: 0 }] }));
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const household = data.household;
+  const showOwner = hasP2(household);
+  const add = () => setData((d) => ({ ...d, vehicles: [...d.vehicles, { id: uid(), name: "", loanBalance: 0, rate: 0, payment: 0, purchasePrice: 0, purchaseDate: "", currentValue: 0, owner: "p1" }] }));
   const upd = (id, patch) => setData((d) => ({ ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, ...patch } : v)) }));
   const del = (id) => setData((d) => ({ ...d, vehicles: d.vehicles.filter((v) => v.id !== id) }));
-  const totalBal = data.vehicles.reduce((s, v) => s + num(v.loanBalance), 0);
-  const totalPay = data.vehicles.reduce((s, v) => s + num(v.payment), 0);
+  const shown = ownerFilter === "all" ? data.vehicles : data.vehicles.filter((v) => (v.owner || "joint") === ownerFilter);
+  const totalBal = shown.reduce((s, v) => s + num(v.loanBalance), 0);
+  const totalPay = shown.reduce((s, v) => s + num(v.payment), 0);
+  const totalEquity = shown.reduce((s, v) => s + (num(v.currentValue) - num(v.loanBalance)), 0);
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3"><Stat label="Total car loans" value={fmt(totalBal)} tone="red" /><Stat label="Monthly payments" value={fmt(totalPay)} /></div>
+      <div className="grid grid-cols-3 gap-3">
+        <Stat label="Total car loans" value={fmt(totalBal)} tone="red" />
+        <Stat label="Monthly payments" value={fmt(totalPay)} />
+        <Stat label="Total vehicle equity" value={fmt(totalEquity)} tone={totalEquity < 0 ? "red" : "green"} />
+      </div>
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Vehicles & loans</h3><button onClick={add} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add vehicle</button></div>
+        {showOwner && data.vehicles.length > 0 && <div className="mb-3"><OwnerFilter value={ownerFilter} onChange={setOwnerFilter} household={household} /></div>}
         {data.vehicles.length === 0 && <p className="text-sm text-stone-400">Add your two cars and their loans.</p>}
         <div className="space-y-3">
-          {data.vehicles.map((v) => {
+          {shown.map((v) => {
             const am = amortize(v.loanBalance, v.rate, v.payment);
+            const dep = num(v.purchasePrice) - num(v.currentValue);
+            const depPct = num(v.purchasePrice) > 0 ? (dep / num(v.purchasePrice)) * 100 : 0;
             return (
-              <div key={v.id}>
+              <div key={v.id} className="bg-stone-50 rounded-xl p-3">
                 <div className="grid grid-cols-12 gap-2 items-end">
                   <TextField label="Vehicle" value={v.name} onChange={(val) => upd(v.id, { name: val })} className="col-span-4" />
                   <NumberField label="Loan balance" value={v.loanBalance} onChange={(val) => upd(v.id, { loanBalance: val })} className="col-span-3" />
@@ -2767,6 +2876,15 @@ function Vehicles({ data, setData }) {
                   <NumberField label="Payment/mo" value={v.payment} onChange={(val) => upd(v.id, { payment: val })} className="col-span-2" />
                   <button onClick={() => del(v.id)} className="col-span-1 text-rose-400 hover:text-rose-600 pb-2"><Trash2 size={15} /></button>
                 </div>
+                <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end mt-2">
+                  <NumberField label="Purchase price" value={v.purchasePrice} onChange={(val) => upd(v.id, { purchasePrice: val })} className={showOwner ? "col-span-1 sm:col-span-3" : "col-span-1 sm:col-span-4"} />
+                  <TextField label="Purchase date" type="date" value={v.purchaseDate} onChange={(val) => upd(v.id, { purchaseDate: val })} className={showOwner ? "col-span-1 sm:col-span-3" : "col-span-1 sm:col-span-4"} />
+                  <NumberField label="Est. value today" value={v.currentValue} onChange={(val) => upd(v.id, { currentValue: val })} className={showOwner ? "col-span-1 sm:col-span-3" : "col-span-1 sm:col-span-4"} />
+                  {showOwner && <OwnerPicker value={v.owner} onChange={(val) => upd(v.id, { owner: val })} household={household} className="col-span-1 sm:col-span-3" />}
+                </div>
+                {num(v.purchasePrice) > 0 && (
+                  <p className="text-xs text-stone-400 mt-1.5">{dep >= 0 ? `${fmt(dep)} depreciation (${depPct.toFixed(0)}%) since purchase` : `${fmt(-dep)} appreciation since purchase`}</p>
+                )}
                 {am && !am.neverPaysOff && <p className="text-xs text-stone-400 mt-1">Paid off in {am.years.toFixed(1)} yrs ({fmtMonthYear(am.payoffDate)}) · {fmt(am.totalInterest)} interest</p>}
               </div>
             );
@@ -3404,8 +3522,8 @@ function TaxReport({ data, setData }) {
       <Card className="bg-emerald-50 border-emerald-200">
         <h3 className="font-medium text-emerald-800 mb-2">Other deductions to remember</h3>
         <div className="text-sm text-emerald-900 space-y-1">
-          <div className="flex justify-between"><span>RRSP deduction (line 20800)</span><span>{fmt(contribInYear(data.investments?.rrsp?.contributions, year))}</span></div>
-          <div className="flex justify-between"><span>FHSA deduction (line 20805)</span><span>{fmt(contribInYear(data.investments?.fhsa?.contributions, year))}</span></div>
+          <div className="flex justify-between"><span>RRSP deduction (line 20800)</span><span>{fmt(contribInYear(data.investments?.rrsp?.p1?.contributions, year) + contribInYear(data.investments?.rrsp?.p2?.contributions, year))}</span></div>
+          <div className="flex justify-between"><span>FHSA deduction (line 20805)</span><span>{fmt(contribInYear(data.investments?.fhsa?.p1?.contributions, year) + contribInYear(data.investments?.fhsa?.p2?.contributions, year))}</span></div>
           <div className="flex justify-between"><span>Childcare deduction (line 21400)</span><span>see Childcare tab</span></div>
         </div>
         <p className="text-xs text-emerald-700 mt-2">TFSA and RESP contributions aren't deductible, but RESP earns the CESG grant.</p>
