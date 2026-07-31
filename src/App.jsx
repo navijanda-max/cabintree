@@ -1363,10 +1363,10 @@ export default function App() {
     <div className="min-h-screen bg-stone-50 text-stone-800 lg:flex">
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 bg-stone-900 h-screen sticky top-0 shadow-xl">
-        <div className="flex items-center gap-2.5 px-5 py-5 border-b border-white/5">
-          <Logo size={32} />
-          <span className="text-lg font-semibold text-white tracking-tight">Cabintree</span>
-        </div>
+        <button onClick={() => setTab("dashboard")} className="flex items-center gap-3 px-5 py-6 border-b border-white/5 hover:bg-white/5 transition-colors text-left">
+          <Logo size={40} />
+          <span className="text-2xl font-bold text-white tracking-tight">Cabintree</span>
+        </button>
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
           {tabs.map((t) => navButton(t, false))}
         </nav>
@@ -1378,10 +1378,10 @@ export default function App() {
 
       {/* Mobile top bar */}
       <div className="lg:hidden sticky top-0 z-20 bg-white border-b border-stone-200 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <Logo size={28} tone="brand" />
-          <span className="text-base font-semibold text-stone-900 tracking-tight">Cabintree</span>
-        </div>
+        <button onClick={() => setTab("dashboard")} className="flex items-center gap-2.5">
+          <Logo size={34} tone="brand" />
+          <span className="text-xl font-bold text-stone-900 tracking-tight">Cabintree</span>
+        </button>
         <button onClick={() => setSidebarOpen(true)} aria-label="Open menu" className="p-2 rounded-lg hover:bg-stone-100 text-stone-600"><Menu size={22} /></button>
       </div>
 
@@ -1390,10 +1390,10 @@ export default function App() {
         <div className="absolute inset-0 bg-stone-900/40" onClick={() => setSidebarOpen(false)} />
         <div className={`absolute top-0 left-0 h-full w-72 max-w-[85vw] bg-stone-900 shadow-xl flex flex-col transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
           <div className="flex items-center justify-between px-5 py-5 border-b border-white/5">
-            <div className="flex items-center gap-2.5">
-              <Logo size={30} />
-              <span className="text-lg font-semibold text-white tracking-tight">Cabintree</span>
-            </div>
+            <button onClick={() => { setTab("dashboard"); setSidebarOpen(false); }} className="flex items-center gap-2.5">
+              <Logo size={36} />
+              <span className="text-xl font-bold text-white tracking-tight">Cabintree</span>
+            </button>
             <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="p-1.5 rounded-lg hover:bg-white/5 text-stone-400 hover:text-white"><X size={20} /></button>
           </div>
           <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
