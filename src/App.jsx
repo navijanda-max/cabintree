@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, Upload, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock, Mail, CheckCircle, Menu, X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Home, Building2, Baby, Car, Wallet, FileText, Target, PiggyBank, CreditCard, Receipt, Camera, Sparkles, Folder, Plus, Trash2, ChevronDown, ChevronRight, Download, Upload, AlertCircle, TrendingDown, TrendingUp, RefreshCw, Users, User, LogOut, Lock, Mail, CheckCircle, Menu, X, Info, Compass } from "lucide-react";
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { createClient } from "@supabase/supabase-js";
 import { Capacitor } from "@capacitor/core";
@@ -29,6 +29,52 @@ const T776_LINES = [
 const PERSONAL_KEY = "family-finance-tracker-v1";
 const FAMILY_KEY = "family-finance-tracker-shared-v1";
 const ONBOARD_KEY = "cabintree-onboarded-v1";
+const TOUR_KEY = "cabintree-tour-v1";
+// tabId: null steps don't switch the visible tab (welcome/closing). Every other step drives the
+// real sidebar tab as the tour advances, so the user sees the actual live tab, not a description.
+const TOUR_STEPS = [
+  { tabId: null, title: "Welcome to Cabintree", text: "A quick look at what's here. Click through, or skip anytime." },
+  { tabId: "dashboard", title: "Dashboard", text: "Your financial command center: net worth, cash flow, and personalized insights, all in one place." },
+  { tabId: "properties", title: "Properties", text: "Track rental properties, mortgages, and expenses that flow straight into your tax return (T776)." },
+  { tabId: "investments", title: "Investments", text: "RRSP, TFSA, FHSA, RESP, and other holdings. See your contribution room and deductions at a glance." },
+  { tabId: "debts", title: "Debts & Bills", text: "Credit cards, loans, and recurring bills. Upload a statement and AI sorts your transactions into categories automatically." },
+  { tabId: "budget", title: "Budget", text: "Give every dollar a job with monthly budget folders." },
+  { tabId: "receipts", title: "Receipts", text: "Snap a photo or upload a PDF, and AI reads the merchant, amount, and category for you." },
+  { tabId: "childcare", title: "Childcare", text: "Track childcare costs and see your CRA deduction limit." },
+  { tabId: "vehicles", title: "Vehicles", text: "Log vehicles, loans, and how much they've depreciated." },
+  { tabId: "goals", title: "Goals", text: "Set savings targets and track your progress toward them." },
+  { tabId: "household", title: "Household", text: "Set your province and family details. This powers your tax estimate." },
+  { tabId: "tax", title: "Tax Report", text: "A full Canadian tax estimate: brackets, credits, and a CRA-ready summary you can export." },
+  { tabId: null, title: "That's the tour", text: "Restart it anytime from \"Take a tour\" at the bottom of the sidebar. Let's get started." },
+];
+function TourOverlay({ step, setStep, setTab, onClose }) {
+  const total = TOUR_STEPS.length;
+  const s = TOUR_STEPS[step];
+  useEffect(() => { if (s.tabId) setTab(s.tabId); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  const next = () => { if (step < total - 1) setStep(step + 1); else onClose(); };
+  const back = () => setStep(Math.max(0, step - 1));
+  return (
+    <div className="fixed bottom-6 inset-x-4 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-96 z-50">
+      <div className="bg-white rounded-2xl border border-stone-200 shadow-2xl p-4">
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <h3 className="font-semibold text-stone-800">{s.title}</h3>
+          <button onClick={onClose} aria-label="Close tour" className="text-stone-400 hover:text-stone-600 shrink-0"><X size={18} /></button>
+        </div>
+        <p className="text-sm text-stone-600 mb-3">{s.text}</p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex gap-1">
+            {TOUR_STEPS.map((_, i) => <span key={i} className={`h-1.5 rounded-full transition-all ${i === step ? "w-5 bg-teal-600" : "w-1.5 bg-stone-200"}`} />)}
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {step > 0 && <button onClick={back} className="text-sm text-stone-500 hover:text-stone-700">Back</button>}
+            <button onClick={onClose} className="text-sm text-stone-400 hover:text-stone-600">Skip</button>
+            <button onClick={next} className="text-sm bg-teal-600 text-white px-3.5 py-1.5 rounded-lg hover:bg-teal-700">{step === total - 1 ? "Done" : "Next"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 const uid = () => Math.random().toString(36).slice(2, 9);
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 
@@ -975,6 +1021,8 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [data, setData] = useState(DEFAULTS());
   const [onboard, setOnboard] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [householdId, setHouseholdId] = useState(null);
@@ -1016,6 +1064,7 @@ export default function App() {
           setUser(sessionUser);
           await loadUserContext(sessionUser);
           try { const o = await window.storage.get(ONBOARD_KEY); if (!o || !o.value) setOnboard(true); } catch (e) { setOnboard(true); }
+          try { const t = await window.storage.get(TOUR_KEY); if (!t || !t.value) setShowTour(true); } catch (e) {}
         }
       } catch (err) {
         console.log("Auth check: no session or error loading data");
@@ -1045,6 +1094,8 @@ export default function App() {
     setLoaded(false);
     (async () => {
       await loadUserContext(user);
+      try { const o = await window.storage.get(ONBOARD_KEY); if (!o || !o.value) setOnboard(true); } catch (e) { setOnboard(true); }
+      try { const t = await window.storage.get(TOUR_KEY); if (!t || !t.value) setShowTour(true); } catch (e) {}
       setLoaded(true);
     })();
   }, [user, householdId]);
@@ -1192,6 +1243,12 @@ export default function App() {
   };
   if (onboard) return <Onboarding onFinish={finishOnboarding} />;
 
+  const closeTour = () => {
+    window.storage.set(TOUR_KEY, "1").catch(() => {});
+    setShowTour(false);
+  };
+  const startTour = () => { setTourStep(0); setTab("dashboard"); setShowTour(true); };
+
   const tabs = [
     { id: "dashboard", label: "Dashboard", short: "Home", icon: Home },
     { id: "properties", label: "Properties", short: "Property", icon: Building2 },
@@ -1235,6 +1292,7 @@ export default function App() {
         </nav>
         <div className="border-t border-white/5 p-3 space-y-2">
           <HouseholdSwitcher memberships={memberships} activeHouseholdId={householdId} onSwitch={switchHousehold} onCreateFamily={createFamilyHousehold} onLeave={leaveHousehold} openUpward />
+          <button onClick={startTour} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/5 text-stone-400 hover:text-white text-xs transition"><Compass size={14} /> Take a tour</button>
           <button onClick={handleSignOut} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/5 text-stone-400 hover:text-white text-xs transition"><LogOut size={14} /> Sign out</button>
         </div>
       </aside>
@@ -1264,6 +1322,7 @@ export default function App() {
           </nav>
           <div className="border-t border-white/5 p-3 space-y-2">
             <HouseholdSwitcher memberships={memberships} activeHouseholdId={householdId} onSwitch={switchHousehold} onCreateFamily={createFamilyHousehold} onLeave={leaveHousehold} openUpward />
+            <button onClick={() => { setSidebarOpen(false); startTour(); }} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/5 text-stone-400 hover:text-white text-xs transition"><Compass size={14} /> Take a tour</button>
             <button onClick={handleSignOut} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/5 text-stone-400 hover:text-white text-xs transition"><LogOut size={14} /> Sign out</button>
           </div>
         </div>
@@ -1300,15 +1359,52 @@ export default function App() {
       <div className={`fixed bottom-4 right-4 z-40 flex items-center gap-1.5 bg-stone-900 text-white text-xs font-medium px-3.5 py-2 rounded-full shadow-lg transition-all duration-300 ${savedAt ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"}`}>
         <CheckCircle size={14} className="text-teal-400" /> Saved
       </div>
+
+      {showTour && <TourOverlay step={tourStep} setStep={setTourStep} setTab={setTab} onClose={closeTour} />}
     </div>
   );
 }
 
 /* ---------- UI building blocks ---------- */
-function NumberField({ label, value, onChange, prefix = "$", className = "" }) {
+// Small click/tap-to-toggle info icon + explanation bubble (not hover-only — the app runs on
+// mobile/native where hover doesn't exist). Closed by an invisible full-screen click-catcher.
+function InfoTip({ text }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onOutside = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("touchstart", onOutside);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("touchstart", onOutside);
+    };
+  }, [open]);
+  return (
+    <div className="relative inline-flex" ref={ref}>
+      <button type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpen((o) => !o); }} className="text-stone-300 hover:text-teal-600 -m-0.5 p-0.5">
+        <Info size={12} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-5 z-50 w-56 bg-stone-800 text-white text-xs rounded-lg px-2.5 py-2 shadow-lg leading-snug font-normal normal-case">{text}</div>
+      )}
+    </div>
+  );
+}
+// Shared label + optional info icon, used by NumberField/TextField/CategorySelect below.
+function FieldLabel({ label, help }) {
+  return (
+    <span className="text-xs text-stone-500 inline-flex items-center gap-1">
+      {label}
+      {help && <InfoTip text={help} />}
+    </span>
+  );
+}
+function NumberField({ label, value, onChange, prefix = "$", className = "", help }) {
   return (
     <label className={`block ${className}`}>
-      <span className="text-xs text-stone-500">{label}</span>
+      <FieldLabel label={label} help={help} />
       <div className="flex items-center mt-0.5 border border-stone-300 rounded-lg bg-white focus-within:ring-2 focus-within:ring-teal-500">
         {prefix && <span className="pl-2 text-stone-400 text-sm">{prefix}</span>}
         <input type="number" value={value === 0 ? "" : value} placeholder="0" onChange={(e) => onChange(num(e.target.value))} className="w-full px-2 py-1.5 text-sm bg-transparent outline-none rounded-lg" />
@@ -1316,15 +1412,15 @@ function NumberField({ label, value, onChange, prefix = "$", className = "" }) {
     </label>
   );
 }
-function TextField({ label, value, onChange, placeholder = "", type = "text", required = false, className = "" }) {
+function TextField({ label, value, onChange, placeholder = "", type = "text", required = false, className = "", help }) {
   return (
     <label className={`block ${className}`}>
-      <span className="text-xs text-stone-500">{label}</span>
+      <FieldLabel label={label} help={help} />
       <input type={type} value={value || ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} required={required} className="w-full mt-0.5 px-2 py-1.5 text-sm border border-stone-300 rounded-lg bg-white outline-none focus:ring-2 focus:ring-teal-500" />
     </label>
   );
 }
-function CategorySelect({ label = "Category", value, categories, onChange, onAddCategory, emptyLabel, className = "" }) {
+function CategorySelect({ label = "Category", value, categories, onChange, onAddCategory, emptyLabel, className = "", help }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const opts = value && !categories.includes(value) ? [...categories, value] : categories;
@@ -1336,7 +1432,7 @@ function CategorySelect({ label = "Category", value, categories, onChange, onAdd
   if (adding) {
     return (
       <label className={`block ${className}`}>
-        <span className="text-xs text-stone-500">{label}</span>
+        <FieldLabel label={label} help={help} />
         <input
           autoFocus
           value={draft}
@@ -1351,7 +1447,7 @@ function CategorySelect({ label = "Category", value, categories, onChange, onAdd
   }
   return (
     <label className={`block ${className}`}>
-      <span className="text-xs text-stone-500">{label}</span>
+      <FieldLabel label={label} help={help} />
       <select
         value={value || ""}
         onChange={(e) => { if (e.target.value === "__other__") setAdding(true); else onChange(e.target.value); }}
@@ -1423,16 +1519,16 @@ function ChartCard({ title, children, hint }) {
 /* ---------- Income & tax-bracket progression ---------- */
 // Optional YTD pay-stub figures. Pay amounts only, never personal info.
 const PAY_DETAIL_FIELDS = [
-  { key: "ytdGross", label: "YTD gross" },
-  { key: "citTaxableGross", label: "CIT taxable gross" },
-  { key: "totalTaxes", label: "Total taxes" },
-  { key: "totalDeductions", label: "Total deductions" },
-  { key: "netPay", label: "Net pay" },
-  { key: "hourlyWage", label: "Hourly wage" },
-  { key: "cit", label: "CIT (T4)" },
-  { key: "cppEE", label: "CPP-EE" },
-  { key: "eiEE", label: "EI-EE" },
-  { key: "cpp2EE", label: "CPP2-EE" },
+  { key: "ytdGross", label: "YTD gross", help: "\"Year-to-date\" gross pay: everything you've earned since January 1, before any deductions." },
+  { key: "citTaxableGross", label: "CIT taxable gross", help: "The portion of your pay that federal/provincial income tax is calculated on — gross pay minus pre-tax deductions like some pension contributions." },
+  { key: "totalTaxes", label: "Total taxes", help: "Federal + provincial income tax withheld from your pay, year-to-date." },
+  { key: "totalDeductions", label: "Total deductions", help: "Every deduction combined — tax, CPP, EI, and anything else — year-to-date." },
+  { key: "netPay", label: "Net pay", help: "What actually lands in your bank account after all deductions come off." },
+  { key: "hourlyWage", label: "Hourly wage", help: "Your hourly rate, if you're paid hourly rather than salaried." },
+  { key: "cit", label: "CIT (T4)", help: "\"CIT\" is payroll shorthand for combined income tax withheld (federal + provincial), the figure that lines up with your T4." },
+  { key: "cppEE", label: "CPP-EE", help: "Your Canada Pension Plan contribution — \"EE\" means the employee's share (as opposed to \"ER\", your employer's matching share) — year-to-date." },
+  { key: "eiEE", label: "EI-EE", help: "Your Employment Insurance premium, employee's share, year-to-date." },
+  { key: "cpp2EE", label: "CPP2-EE", help: "The second, additional CPP contribution that applies to higher earnings, introduced in 2024. Also an employee-share, year-to-date figure." },
 ];
 const PAY_DETAIL_DEFAULTS = Object.fromEntries(PAY_DETAIL_FIELDS.map((f) => [f.key, 0]));
 
@@ -1589,7 +1685,7 @@ function IncomeTracker({ data, setData }) {
                     {payDetailsOpen[e.id] && (
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1.5 mb-1 bg-stone-50 rounded-lg p-2">
                         {PAY_DETAIL_FIELDS.map((f) => (
-                          <NumberField key={f.key} label={f.label} value={e[f.key] || 0} onChange={(v) => updEntry(e.id, { [f.key]: v })} />
+                          <NumberField key={f.key} label={f.label} help={f.help} value={e[f.key] || 0} onChange={(v) => updEntry(e.id, { [f.key]: v })} />
                         ))}
                       </div>
                     )}
@@ -1661,6 +1757,19 @@ function Dashboard({ data, setData }) {
   });
   if (tot.debt === 0 && tot.investments > 0) insights.push({ tone: "good", text: `You're debt-free with ${fmt(tot.investments)} invested. Consider directing more of your monthly cash flow toward investing.` });
   else if (tot.assets > 0 && tot.debt / tot.assets > 0.8) insights.push({ tone: "warn", text: `Debt makes up ${((tot.debt / tot.assets) * 100).toFixed(0)}% of your assets, a highly leveraged position worth keeping an eye on.` });
+
+  // Sourced tax-advantage tips (see plan doc for CRA sources) — informational, not tax advice.
+  if (rentMonthly > 0) {
+    insights.push({ tone: "good", text: `You're earning rental income: remember mortgage interest (not the principal portion), property tax, insurance, and repairs are deductible against it on your T776. Per CRA's Rental Income guide.` });
+  }
+  const nowForTips = new Date();
+  if (rrspRoomLeft > 0 && nowForTips.getMonth() < 2) {
+    insights.push({ tone: "good", text: `You still have ${fmt(rrspRoomLeft)} of RRSP room, and contributions made in the first 60 days of the year (by ~March 1) still count against last year's taxes. Per the CRA's RRSP rules.` });
+  }
+  const childcareTotal = (data.childcare || []).reduce((s, e) => s + num(e.amount), 0);
+  if (hasP2(data.household) && childcareTotal > 0) {
+    insights.push({ tone: "good", text: `With childcare expenses logged, remember the lower-net-income spouse generally must claim the deduction (line 21400), with narrow exceptions. Per CRA's Line 21400 guidance.` });
+  }
 
   const spend = [
     { name: "Mortgages", value: mortgagePay },
@@ -1994,7 +2103,7 @@ function PropertyCard({ p, household, showOwner, open, toggle, upd, del }) {
             <TextField label="Address" value={p.address} onChange={(v) => upd({ address: v })} className="col-span-2" />
             <NumberField label="Purchase price" value={p.purchasePrice} onChange={(v) => upd({ purchasePrice: v })} />
             <TextField label="Purchase date" type="date" value={p.purchaseDate} onChange={(v) => upd({ purchaseDate: v })} />
-            <NumberField label="Your ownership %" prefix="" value={p.ownershipPct} onChange={(v) => upd({ ownershipPct: v })} />
+            <NumberField label="Your ownership %" prefix="" help="Your share of this property if it's co-owned (e.g. with a spouse) — splits rental income/expenses on your T776 accordingly. Use 100% if you're the sole owner." value={p.ownershipPct} onChange={(v) => upd({ ownershipPct: v })} />
             <NumberField label="Current value (manual)" value={p.currentValue} onChange={(v) => upd({ currentValue: v })} />
             <TextField label="Value last updated" type="date" value={p.valueUpdated} onChange={(v) => upd({ valueUpdated: v })} />
             {showOwner && <OwnerPicker value={p.owner} onChange={(v) => upd({ owner: v })} household={household} />}
@@ -2012,7 +2121,7 @@ function PropertyCard({ p, household, showOwner, open, toggle, upd, del }) {
               <NumberField label="Balance owing" value={p.mortgage.balance} onChange={(v) => setMortgage({ balance: v })} />
               <NumberField label="Interest rate %" prefix="" value={p.mortgage.rate} onChange={(v) => setMortgage({ rate: v })} />
               <NumberField label="Monthly payment" value={p.mortgage.payment} onChange={(v) => setMortgage({ payment: v })} />
-              <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Equity / LTV</div><div className="font-medium text-sm">{fmt(eq)}</div><div className="text-stone-400">{num(p.currentValue) ? ((num(p.mortgage.balance) / num(p.currentValue)) * 100).toFixed(0) : 0}% LTV</div></div>
+              <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400 inline-flex items-center gap-1">Equity / LTV<InfoTip text="LTV = Loan-to-Value: your mortgage balance as a percentage of the property's value. Lower is safer — most lenders want it under 80% to avoid mortgage default insurance." /></div><div className="font-medium text-sm">{fmt(eq)}</div><div className="text-stone-400">{num(p.currentValue) ? ((num(p.mortgage.balance) / num(p.currentValue)) * 100).toFixed(0) : 0}% LTV</div></div>
             </div>
             {amort && amort.neverPaysOff && <p className="text-xs text-rose-500 mt-2 flex items-center gap-1"><AlertCircle size={13} /> Payment too low to cover interest. The balance never clears.</p>}
             {amort && !amort.neverPaysOff && (
@@ -2055,7 +2164,7 @@ function PropertyCard({ p, household, showOwner, open, toggle, upd, del }) {
           </section>
 
           <section>
-            <h4 className="text-sm font-medium text-stone-600 mb-2">Annual operating expenses (T776 lines)</h4>
+            <h4 className="text-sm font-medium text-stone-600 mb-2 inline-flex items-center gap-1">Annual operating expenses (T776 lines)<InfoTip text="T776 is the CRA form for reporting rental income and expenses. Mortgage interest (not the principal portion) is deductible, along with property tax, insurance, and repairs — per CRA's Rental Income guide (T4036)." /></h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{T776_LINES.map((line) => <NumberField key={line.code} label={`${line.code} · ${line.label}`} value={p.expenses[line.code] || 0} onChange={(v) => setExpense(line.code, v)} />)}</div>
             <p className="text-xs text-stone-400 mt-1.5">Line 8960 fills automatically from the repairs log below.</p>
           </section>
@@ -2159,12 +2268,12 @@ function Investments({ data, setData }) {
 
   // Shared layout for RRSP/TFSA/FHSA: one column for a solo account, two side-by-side
   // per-person columns plus a combined total for a family household.
-  const registeredCard = (title, key, roomLabel, note) => {
+  const registeredCard = (title, key, roomLabel, note, titleHelp, roomHelp) => {
     const combinedValue = acctSum(key, (a) => num(a.value));
     return (
       <Card>
         <div className="flex items-baseline justify-between mb-3">
-          <h3 className="font-medium text-stone-700">{title}</h3>
+          <h3 className="font-medium text-stone-700 inline-flex items-center gap-1">{title}{titleHelp && <InfoTip text={titleHelp} />}</h3>
           {showP2 && <span className="text-xs text-stone-400">Combined: {fmt(combinedValue)}</span>}
         </div>
         <div className={showP2 ? "grid sm:grid-cols-2 gap-x-5 gap-y-4" : ""}>
@@ -2176,7 +2285,7 @@ function Investments({ data, setData }) {
               <div key={pp.key} className={showP2 && pp.key === "p2" ? "sm:border-l sm:border-stone-100 sm:pl-5" : ""}>
                 {showP2 && <div className="text-xs font-medium text-stone-500 mb-2">{pp.name}</div>}
                 <div className="grid grid-cols-2 gap-3 mb-3">
-                  <NumberField label={roomLabel} value={acct.room} onChange={(v) => setAcct(key, pp.key, { room: v })} />
+                  <NumberField label={roomLabel} help={roomHelp} value={acct.room} onChange={(v) => setAcct(key, pp.key, { room: v })} />
                   <NumberField label="Current value" value={acct.value} onChange={(v) => setAcct(key, pp.key, { value: v })} />
                   <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(thisYear)}</div></div>
                   <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Room left</div><div className={`font-medium text-sm ${roomLeft < 0 ? "text-rose-600" : "text-emerald-600"}`}>{fmt(roomLeft)}</div></div>
@@ -2222,20 +2331,20 @@ function Investments({ data, setData }) {
           </div>
         )}
       </ChartCard>
-      {registeredCard("RRSP: Retirement Savings", "rrsp", "Deduction limit (from NOA)", "Reduces taxable income (line 20800). 2026 dollar-limit ceiling is $33,810; your limit is on your Notice of Assessment. Room is per-person, set by the CRA.")}
-      {registeredCard("TFSA: Tax-Free Savings", "tfsa", "Contribution room", "Tax-free growth. Annual limit $7,000 (2024–2026); over-contributions cost 1%/month. Room is per-person; there's no such thing as a joint TFSA.")}
+      {registeredCard("RRSP: Retirement Savings", "rrsp", "Deduction limit (from NOA)", "Reduces taxable income (line 20800). 2026 dollar-limit ceiling is $33,810; your limit is on your Notice of Assessment. Room is per-person, set by the CRA.", "RRSP = Registered Retirement Savings Plan. Contributions reduce your taxable income now; you pay tax when you withdraw, usually in retirement when your income (and tax rate) tends to be lower.", "Your RRSP deduction limit, shown on your Notice of Assessment (NOA) — the letter the CRA sends after processing your tax return.")}
+      {registeredCard("TFSA: Tax-Free Savings", "tfsa", "Contribution room", "Tax-free growth. Annual limit $7,000 (2024–2026); over-contributions cost 1%/month. Room is per-person; there's no such thing as a joint TFSA.", "TFSA = Tax-Free Savings Account. Contributions aren't tax-deductible, but growth and withdrawals are completely tax-free.", "How much you can still contribute this year without triggering the CRA's 1%/month over-contribution penalty.")}
       <Card>
-        <h3 className="font-medium text-stone-700 mb-3">RESP: Education Savings</h3>
+        <h3 className="font-medium text-stone-700 mb-3 inline-flex items-center gap-1">RESP: Education Savings<InfoTip text="RESP = Registered Education Savings Plan, for a child's post-secondary education. The government tops up contributions with the CESG grant (below)." /></h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <NumberField label="Current value" value={inv.resp.value} onChange={(v) => setResp({ value: v })} />
           <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">Contributed {year}</div><div className="font-medium text-sm">{fmt(respThisYear)}</div></div>
-          <div className="bg-emerald-50 rounded-lg p-2 text-xs"><div className="text-emerald-600">Est. CESG {year}</div><div className="font-medium text-sm text-emerald-700">{fmt(cesg)}</div></div>
+          <div className="bg-emerald-50 rounded-lg p-2 text-xs"><div className="text-emerald-600 inline-flex items-center gap-1">Est. CESG {year}<InfoTip text="CESG = Canada Education Savings Grant. The government adds 20% of what you contribute to an RESP, up to $500/year per child." /></div><div className="font-medium text-sm text-emerald-700">{fmt(cesg)}</div></div>
           <div className="bg-stone-50 rounded-lg p-2 text-xs"><div className="text-stone-400">To max grant</div><div className="font-medium text-sm">{fmt(Math.max(0, 2500 - respThisYear))}</div></div>
         </div>
         <ContribList list={inv.resp.contributions} label="Contributions" {...respOps} />
         <p className="text-xs text-stone-400 mt-2">Government adds 20% (up to $500/yr per child, $7,200 lifetime). Lifetime contribution cap $50,000 per child. Tracked once per household since RESP room is per beneficiary child, not per contributing parent.</p>
       </Card>
-      {registeredCard("FHSA: First Home Savings Account", "fhsa", "Contribution room", "Best of both worlds for a first home: contributions are tax-deductible like an RRSP (line 20805) and withdrawals for a qualifying home are tax-free like a TFSA. $8,000/year, $40,000 lifetime. Carry forward up to $8,000 of unused room. Room is per-person.")}
+      {registeredCard("FHSA: First Home Savings Account", "fhsa", "Contribution room", "Best of both worlds for a first home: contributions are tax-deductible like an RRSP (line 20805) and withdrawals for a qualifying home are tax-free like a TFSA. $8,000/year, $40,000 lifetime. Carry forward up to $8,000 of unused room. Room is per-person.", "FHSA = First Home Savings Account. Contributions are tax-deductible like an RRSP, and withdrawals for a qualifying first home are tax-free like a TFSA.", "How much FHSA room you have left this year — $8,000/year, up to $8,000 of unused room carried forward.")}
       <Card>
         <div className="flex justify-between items-center mb-3"><h3 className="font-medium text-stone-700">Non-registered investments</h3><button onClick={addNonreg} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add holding</button></div>
         {showP2 && inv.nonreg.length > 0 && <div className="mb-3"><OwnerFilter value={nonregOwnerFilter} onChange={setNonregOwnerFilter} household={household} /></div>}
@@ -3188,7 +3297,7 @@ function TaxEstimateCard({ data, setData }) {
             <div className="flex justify-between text-stone-500"><span>Est. CPP + EI</span><span>{fmt(res.cppEi)}</span></div>
             <div className="flex justify-between font-medium border-t border-stone-200 pt-1"><span>Total income tax</span><span>{fmt(res.totalTax)}</span></div>
             <div className="flex justify-between text-stone-500"><span>Tax withheld</span><span>{fmt(num(person.taxDeducted))}</span></div>
-            <div className="flex justify-between text-stone-400 text-xs"><span>Marginal rate</span><span>{res.marginalRate.toFixed(1)}%</span></div>
+            <div className="flex justify-between text-stone-400 text-xs"><span className="inline-flex items-center gap-1">Marginal rate<InfoTip text="The tax rate on your NEXT dollar of income, not your average rate on all of it. Useful for judging whether an extra RRSP contribution or a bonus is worth it." /></span><span>{res.marginalRate.toFixed(1)}%</span></div>
           </div>
           <div className={`rounded-xl p-4 text-center ${res.refund >= 0 ? "bg-emerald-50" : "bg-rose-50"}`}>
             <div className={`text-xs ${res.refund >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{active.name} · estimated {res.refund >= 0 ? "refund" : "balance owing"}</div>
@@ -3343,7 +3452,7 @@ function TaxReport({ data, setData }) {
       {summaries.length === 0 && <p className="text-sm text-stone-400">Add properties to generate T776 summaries.</p>}
       {summaries.map((s) => (
         <Card key={s.p.id}>
-          <div className="flex justify-between items-baseline mb-3"><h3 className="font-medium text-stone-700">{s.p.name}: T776 summary</h3><span className="text-xs text-stone-400">{s.p.occupancy === "partial" ? `${s.p.personalUsePct}% personal use` : "100% rental"}</span></div>
+          <div className="flex justify-between items-baseline mb-3"><h3 className="font-medium text-stone-700 inline-flex items-center gap-1">{s.p.name}: T776 summary<InfoTip text="T776 is the CRA form for reporting rental income and expenses. Mortgage interest (not the principal portion), property tax, insurance, and repairs are deductible — per CRA's Rental Income guide (T4036)." /></h3><span className="text-xs text-stone-400">{s.p.occupancy === "partial" ? `${s.p.personalUsePct}% personal use` : "100% rental"}</span></div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-xs text-stone-400 border-b border-stone-200"><th className="text-left py-1.5 font-normal">Line</th><th className="text-left font-normal">Category</th><th className="text-right font-normal">Total</th><th className="text-right font-normal">Personal</th><th className="text-right font-normal">Deductible</th></tr></thead>
@@ -3359,7 +3468,7 @@ function TaxReport({ data, setData }) {
             <div className="mt-3 bg-stone-50 rounded-lg p-3">
               <div className="text-xs font-medium text-stone-600 mb-1">Capital additions {year} → for CCA (line 9936)</div>
               {s.capital.map((c) => <div key={c.id} className="flex justify-between text-xs text-stone-500 py-0.5"><span>{c.description || "N/A"} ({c.date || "no date"})</span><span>{fmt2(c.amount)}</span></div>)}
-              <p className="text-xs text-stone-400 mt-1.5">CCA isn't auto-calculated. It's optional and can affect your principal-residence exemption. Decide with your accountant.</p>
+              <p className="text-xs text-stone-400 mt-1.5">CCA isn't auto-calculated. Buildings depreciate at 4%/year (Class 1), and the "half-year rule" limits your first year to half that; CCA can never create or increase a rental loss. It's optional and can affect your principal-residence exemption later. Decide with your accountant.</p>
             </div>
           )}
         </Card>
@@ -3370,8 +3479,10 @@ function TaxReport({ data, setData }) {
           <div className="flex justify-between"><span>RRSP deduction (line 20800)</span><span>{fmt(contribInYear(data.investments?.rrsp?.p1?.contributions, year) + contribInYear(data.investments?.rrsp?.p2?.contributions, year))}</span></div>
           <div className="flex justify-between"><span>FHSA deduction (line 20805)</span><span>{fmt(contribInYear(data.investments?.fhsa?.p1?.contributions, year) + contribInYear(data.investments?.fhsa?.p2?.contributions, year))}</span></div>
           <div className="flex justify-between"><span>Childcare deduction (line 21400)</span><span>see Childcare tab</span></div>
+          <div className="flex justify-between"><span>RRSP 60-day rule</span><span>counts until Mar 1, {year + 1}</span></div>
+          <div className="flex justify-between"><span>TFSA {year} room</span><span>$7,000 (unused room carries forward)</span></div>
         </div>
-        <p className="text-xs text-emerald-700 mt-2">TFSA and RESP contributions aren't deductible, but RESP earns the CESG grant.</p>
+        <p className="text-xs text-emerald-700 mt-2">TFSA and RESP contributions aren't deductible, but RESP earns the CESG grant. Per the CRA: RRSP contributions made in the first 60 days of the following year can still be claimed against {year}, and TFSA room never expires if you don't use it.</p>
       </Card>
       <Card className="bg-amber-50 border-amber-200"><div className="flex gap-2 text-sm text-amber-800"><AlertCircle size={18} className="shrink-0 mt-0.5" /><p>Organizes your records to CRA categories for {year}. A record-keeping aid, not tax advice or a filed return.</p></div></Card>
     </div>
