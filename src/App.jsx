@@ -307,22 +307,23 @@ function applyDefaults(p) {
   };
 }
 
-/* ---------- Brand logo (coin+pine glyph) ---------- */
+/* ---------- Brand logo (C+tree emblem, full color) ---------- */
 function Logo({ size = 40, tone = "reversed" }) {
-  // "reversed": white glyph on translucent-white square, for teal/dark backgrounds (default, used in the app header).
-  // "brand": teal glyph on transparent, for light backgrounds (landing page, favicon).
-  const bg = tone === "brand" ? "none" : "rgba(255,255,255,0.14)";
-  const fg = tone === "brand" ? "#0d9488" : "#ffffff";
+  // The icon is a fixed multi-color illustration (not a single-tone glyph), so it reads fine
+  // directly on light backgrounds. On dark/photo backgrounds ("reversed", the default — used in
+  // the app header/sidebar) it gets a soft white card behind it for guaranteed contrast.
+  const withCard = tone !== "brand";
+  const imgSize = withCard ? Math.round(size * 0.86) : size;
   return (
-    <svg width={size} height={size} viewBox="0 0 240 240" aria-label="Cabintree">
-      <rect x="0" y="0" width="240" height="240" rx="54" fill={bg} />
-      <circle cx="120" cy="120" r="74" fill="none" stroke={fg} strokeWidth="6" />
-      <circle cx="120" cy="120" r="62" fill="none" stroke={fg} strokeWidth="2" opacity="0.55" />
-      <polygon points="92,150 148,150 120,116" fill={fg} />
-      <polygon points="98,124 142,124 120,92" fill={fg} />
-      <polygon points="104,100 136,100 120,70" fill={fg} />
-      <rect x="115" y="150" width="10" height="16" rx="2" fill={fg} />
-    </svg>
+    <span
+      style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: size, height: size, borderRadius: size * 0.22,
+        background: withCard ? "rgba(255,255,255,0.92)" : "none",
+      }}
+    >
+      <img src="/cabintree-icon.png" alt="Cabintree" width={imgSize} height={imgSize} style={{ display: "block" }} />
+    </span>
   );
 }
 
