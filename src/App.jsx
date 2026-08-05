@@ -113,91 +113,9 @@ const CAT_TO_T776 = { "Utilities": "9220", "Home / Repairs": "8960", "Auto": "92
 const receiptLine = (cat) => CAT_TO_T776[cat] || "9270";
 const PIE = ["#0d9488", "#0891b2", "#f59e0b", "#e11d48", "#8b5cf6", "#10b981", "#64748b", "#ec4899", "#f97316"];
 
-function parseReceiptText(text) {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  let amount = 0;
-  // Checked in priority order (most specific/reliable label first) so "Subtotal" never
-  // outranks the real total, and the widest possible set of receipt phrasings is covered.
-  const totalRes = [
-    /grand\s*total[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
-    /amount\s*due[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
-    /balance\s*due[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
-    /total\s*due[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
-    /(?:amount|total)\s*paid[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
-    /you\s*paid[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
-    /total\s*sale[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
-    /purchase\s*total[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i,
-  ];
-  outer: for (const re of totalRes) {
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const m = lines[i].match(re);
-      if (m) { amount = parseFloat(m[1].replace(/,/g, "")); break outer; }
-    }
-  }
-  if (!amount) {
-    // bare "total" (but never "subtotal") as a fallback before resorting to the largest dollar figure
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (/subtotal/i.test(lines[i])) continue;
-      const m = lines[i].match(/\btotal\b[^\d$]*[$]?\s*([\d,]+\.?\d{0,2})/i);
-      if (m) { amount = parseFloat(m[1].replace(/,/g, "")); break; }
-    }
-  }
-  if (!amount) {
-    const all = [...text.matchAll(/\$?\s*([\d,]+\.\d{2})/g)].map((m) => parseFloat(m[1].replace(/,/g, "")));
-    if (all.length) amount = Math.max(...all);
-  }
-  let date = "";
-  for (const re of [/\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b/, /\b(\d{1,2}[-/]\d{1,2}[-/]\d{4})\b/, /\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\.?\s+\d{1,2},?\s+\d{4})\b/i]) {
-    const m = text.match(re);
-    if (m) { try { const d = new Date(m[1]); if (!isNaN(d.getTime())) { date = d.toISOString().slice(0, 10); break; } } catch {} }
-  }
-  const merchant = lines.find((l) => l.length > 2 && !/^\d/.test(l)) || lines[0] || "";
-  return { amount, date, merchant };
-}
-// Pulls only pay figures out of a pay stub, never personal info (name, SIN, address, employer).
-// Rule-based (regex) only, no AI/OCR-model interpretation of meaning.
-function parsePayStubText(text) {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const numsOnLine = (line) => [...line.matchAll(/([\d,]+\.\d{1,2}|[\d,]+)/g)].map((m) => parseFloat(m[1].replace(/,/g, "")));
-  const firstNum = (line) => { const n = numsOnLine(line); return n.length ? n[0] : null; };
-  const lastNum = (line) => { const n = numsOnLine(line); return n.length ? n[n.length - 1] : null; };
-  // Current-period fields (gross/taxWithheld) read the FIRST number on their label line and skip
-  // lines that are explicitly YTD-only, so a lone "YTD Gross: 24,691.12" line isn't misread as this
-  // period's pay. Everything else here is a YTD figure by definition, and most stubs print it as a
-  // "current | YTD" pair on one line, so those fields just read the LAST number on the label line
-  // (the only number, when there's just one) rather than requiring the literal word "YTD" nearby.
-  const findAmount = (re, pick, { skipYtdOnlyLines = false, excludeRe = null } = {}) => {
-    for (const line of lines) {
-      if (skipYtdOnlyLines && /ytd|year.to.date/i.test(line)) continue;
-      if (excludeRe && excludeRe.test(line)) continue;
-      if (re.test(line)) { const v = pick(line); if (v != null) return v; }
-    }
-    return 0;
-  };
-
-  const gross = findAmount(/(?:total\s+)?gross(?:\s+(?:pay|earnings|income|wages|salary))?/i, firstNum, { skipYtdOnlyLines: true });
-  const taxWithheld = findAmount(/(?:income|federal|fed|provincial|prov)?\s*tax(?!able)(?:\s+(?:deducted|withheld|withholding))?/i, firstNum, { skipYtdOnlyLines: true, excludeRe: /total\s*tax/i });
-
-  const ytdGross = findAmount(/(?:total\s+)?gross(?:\s+(?:pay|earnings|income|wages|salary))?/i, lastNum);
-  const citTaxableGross = findAmount(/cit\s*taxable\s*gross/i, lastNum);
-  const totalTaxes = findAmount(/total\s*taxes?\b/i, lastNum);
-  const totalDeductions = findAmount(/total\s*deductions?\b/i, lastNum);
-  const netPay = findAmount(/net\s*pay\b/i, lastNum);
-  const hourlyWage = findAmount(/hourly\s*(?:rate|wage)/i, firstNum);
-  const cpp2EE = findAmount(/cpp\s*2[\s-]*ee|2nd?\s*(?:tier\s*)?cpp[\s-]*ee|cpp2[\s-]*ee/i, lastNum);
-  const cppEE = findAmount(/\bcpp[\s-]*ee\b/i, lastNum, { excludeRe: /cpp\s*2|2nd?\s*(?:tier\s*)?cpp/i });
-  const eiEE = findAmount(/\bei[\s-]*ee\b/i, lastNum);
-  const cit = findAmount(/\bcit\b/i, lastNum, { excludeRe: /cit\s*taxable/i });
-
-  let payDate = "";
-  for (const re of [/(?:pay\s+date[^\d]*)(\d{4}[-/]\d{1,2}[-/]\d{1,2})/i, /\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b/]) {
-    const m = text.match(re);
-    if (m) { try { const d = new Date(m[1]); if (!isNaN(d.getTime())) { payDate = d.toISOString().slice(0, 10); break; } } catch {} }
-  }
-  return { gross, taxWithheld, payDate, ytdGross, citTaxableGross, totalTaxes, totalDeductions, netPay, hourlyWage, cit, cppEE, eiEE, cpp2EE };
-}
-
-/* ---------- File upload → image + text extraction (photos & PDFs) ---------- */
+/* ---------- File upload → AI-powered field extraction ---------- */
+// Downscales a photographed image before upload (smaller payload, lower cost, faster). PDFs
+// aren't touched here — sent to the extraction API as-is, since Claude reads PDFs natively.
 const compressImage = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => {
@@ -207,130 +125,47 @@ const compressImage = (file) => new Promise((resolve, reject) => {
       if (width > max || height > max) { const s = max / Math.max(width, height); width = Math.round(width * s); height = Math.round(height * s); }
       const c = document.createElement("canvas"); c.width = width; c.height = height;
       c.getContext("2d").drawImage(img, 0, 0, width, height);
-      resolve(c.toDataURL("image/jpeg", 0.6));
+      resolve(c.toDataURL("image/jpeg", 0.85));
     };
     img.onerror = reject; img.src = reader.result;
   };
   reader.onerror = reject; reader.readAsDataURL(file);
 });
 
-const ocrImage = async (dataUrl) => {
-  const { default: Tesseract } = await import("tesseract.js");
-  const { data: { text } } = await Tesseract.recognize(dataUrl, "eng", { logger: () => {} });
-  return text;
-};
-
-async function extractFromPdf(file) {
-  const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  const page = await pdf.getPage(1);
-
-  const textContent = await page.getTextContent();
-  let text = textContent.items.map((it) => it.str + (it.hasEOL ? "\n" : " ")).join("").trim();
-
-  const viewport = page.getViewport({ scale: 1.5 });
-  const canvas = document.createElement("canvas");
-  canvas.width = viewport.width; canvas.height = viewport.height;
-  await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
-
-  if (text.length < 20) text = await ocrImage(dataUrl); // scanned PDF, no text layer: fall back to OCR
-  return { dataUrl, text };
-}
-
-async function extractFromFile(file) {
-  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
-  if (isPdf) return extractFromPdf(file);
-  const dataUrl = await compressImage(file);
-  const text = await ocrImage(dataUrl);
-  return { dataUrl, text };
-}
-
-// Statements are often multiple pages, unlike receipts/pay stubs (page 1 only), so this reads
-// every page's text layer and concatenates them in order.
-async function extractAllPdfText(file) {
-  const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  let text = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const textContent = await page.getTextContent();
-    text += textContent.items.map((it) => it.str + (it.hasEOL ? "\n" : " ")).join("") + "\n";
-  }
-  return text.trim();
-}
-
-// Turns "Jul 05" / "07/05/26" / "2026-07-05" style statement dates into ISO, using a year found
-// elsewhere in the statement (e.g. "Statement Date: ...2026...") when the line itself has no year.
-function normalizeStatementDate(str, defaultYear) {
-  let m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
-  m = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/);
-  if (m) { let [, mo, da, yr] = m; if (yr.length === 2) yr = "20" + yr; return `${yr}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`; }
-  m = str.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,?\s*(\d{4}))?$/);
-  if (m) {
-    const months = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
-    const mo = months[m[1].toLowerCase()];
-    const yr = m[3] || defaultYear;
-    if (mo) return `${yr}-${String(mo).padStart(2, "0")}-${String(m[2]).padStart(2, "0")}`;
-  }
-  return "";
-}
-
-// Line-based scan for "date … description … amount" rows, the common shape of a credit card
-// statement's transaction list. Rule-based only (no AI): a line either looks like a transaction
-// row or it doesn't.
-function parseStatementTransactions(text) {
-  const yearMatch = text.match(/\b(20\d{2})\b/);
-  const defaultYear = yearMatch ? yearMatch[1] : String(new Date().getFullYear());
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const dateRe = /^((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:,?\s*\d{4})?|\d{1,2}[-/]\d{1,2}(?:[-/]\d{2,4})?|\d{4}[-/]\d{1,2}[-/]\d{1,2})\s+(.+)$/i;
-  const amountTailRe = /(-?\$?[\d,]+\.\d{2})\s*(CR)?\s*$/i;
-  const txns = [];
-  for (const line of lines) {
-    const dm = line.match(dateRe);
-    if (!dm) continue;
-    const rest = dm[2];
-    const am = rest.match(amountTailRe);
-    if (!am) continue;
-    let amount = parseFloat(am[1].replace(/[$,]/g, ""));
-    if (am[2] || amount < 0) amount = -Math.abs(amount); // payments/credits: negative
-    const description = rest.slice(0, am.index).trim().replace(/\s{2,}/g, " ");
-    if (!description) continue;
-    const date = normalizeStatementDate(dm[1], defaultYear);
-    txns.push({ id: uid(), date, description, amount: Math.abs(amount), isCredit: amount < 0, include: amount > 0 });
-  }
-  return txns;
-}
-
-// Keyword → category lookup for auto-categorizing statement transactions (e.g. grouping every
-// subscription together). No AI: just a hardcoded merchant-keyword table, falling back to "Other".
-const MERCHANT_CATEGORY_MAP = [
-  { re: /netflix|spotify|disney\+|hulu|amazon prime|apple\.com\/bill|crave|youtube premium|xbox game pass|playstation plus|audible|icloud/i, category: "Subscriptions" },
-  { re: /walmart|superstore|save.?on.?foods|safeway|sobeys|no frills|costco|loblaws|metro|iga|food basics|freshco/i, category: "Groceries" },
-  { re: /starbucks|tim hortons|mcdonald|wendy|subway|pizza|sushi|doordash|uber eats|skip ?the ?dishes|restaurant|cafe/i, category: "Dining" },
-  { re: /uber(?!\s*eats)|lyft|petro-?canada|shell|esso|chevron|husky|parking|transit|translink|go transit|taxi/i, category: "Transportation" },
-  { re: /hydro|utilities|water bill|gas bill|enbridge|fortisbc|epcor/i, category: "Utilities" },
-  { re: /rogers|bell canada|telus|freedom mobile|fido|koodo|virgin mobile|shaw/i, category: "Phone/Internet" },
-  { re: /shoppers drug mart|pharmacy|dentist|clinic|physio|london drugs/i, category: "Health" },
-  { re: /cineplex|ticketmaster|steam|playstation store|indigo|chapters/i, category: "Entertainment" },
-  { re: /airbnb|expedia|air canada|westjet|marriott|hotel|hilton/i, category: "Travel" },
-  { re: /home depot|rona|canadian tire|ikea|lowe/i, category: "Home / Repairs" },
-];
-function categorizeTransaction(description, categories) {
-  const hit = MERCHANT_CATEGORY_MAP.find((m) => m.re.test(description));
-  if (hit && categories.includes(hit.category)) return hit.category;
-  return categories.includes("Other") ? "Other" : categories[0] || "Other";
-}
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result.split(",")[1]); // strip the "data:...;base64," prefix
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
 
 const isNative = () => Capacitor.isNativePlatform();
 
+// Sends a receipt/pay-stub/statement image or PDF to the extract-document Edge Function, which
+// calls Claude's vision API server-side (the API key never reaches the browser) and returns
+// structured JSON for the requested `kind`. `categories` constrains AI categorization to the
+// household's actual, per-household-customizable category list, so it can't invent new ones.
+async function callExtractDocument(kind, mimeType, data, categories) {
+  const { data: result, error } = await supabase.functions.invoke("extract-document", { body: { kind, mimeType, data, categories } });
+  if (error) throw error;
+  if (result?.error) throw new Error(result.error);
+  return result;
+}
+// Web file-input path (image or PDF). Returns a dataUrl thumbnail for images (used for the
+// receipt preview); PDFs have no client-side preview since there's no local PDF rendering anymore.
+async function extractDocumentAI(file, kind, categories = []) {
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+  if (isPdf) {
+    const data = await fileToBase64(file);
+    const result = await callExtractDocument(kind, "application/pdf", data, categories);
+    return { result, dataUrl: null };
+  }
+  const dataUrl = await compressImage(file);
+  const result = await callExtractDocument(kind, "image/jpeg", dataUrl.split(",")[1], categories);
+  return { result, dataUrl };
+}
 // Native camera/photo-library capture (iOS/Android app only). Returns null if the user cancels.
-async function extractFromNativeCamera() {
+async function captureNativePhoto() {
   try {
     const photo = await CapCamera.getPhoto({
       quality: 70,
@@ -340,12 +175,14 @@ async function extractFromNativeCamera() {
       promptLabelPhoto: "Choose from Library",
       promptLabelPicture: "Take Photo",
     });
-    const dataUrl = photo.dataUrl;
-    const text = await ocrImage(dataUrl);
-    return { dataUrl, text };
+    return photo.dataUrl;
   } catch (e) {
     return null; // user canceled
   }
+}
+async function extractDocumentAINative(dataUrl, kind, categories = []) {
+  const result = await callExtractDocument(kind, "image/jpeg", dataUrl.split(",")[1], categories);
+  return { result, dataUrl };
 }
 
 const fmt = (n) => (Number(n) || 0).toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
@@ -1607,6 +1444,7 @@ function IncomeTracker({ data, setData }) {
   const hasP2 = (data.household.p2Name && data.household.p2Name !== "Spouse/Partner") || log.some((e) => e.person === "p2");
   const people = hasP2 ? [{ key: "p1", name: data.household.p1Name || "Me" }, { key: "p2", name: data.household.p2Name || "Partner" }] : [{ key: "p1", name: data.household.p1Name || "Me" }];
   const [busy, setBusy] = useState(false);
+  const [stubError, setStubError] = useState("");
   const [payDetailsOpen, setPayDetailsOpen] = useState({});
   const togglePayDetails = (id) => setPayDetailsOpen((s) => ({ ...s, [id]: !s[id] }));
 
@@ -1634,24 +1472,24 @@ function IncomeTracker({ data, setData }) {
     setData((d) => ({ ...d, payTemplates: [...(d.payTemplates || []), { id: uid(), person, name: `Pay template ${n}`, gross: last ? num(last.gross) : 0, taxWithheld: last ? num(last.taxWithheld) : 0 }] }));
   };
 
-  const applyStubText = (person, text) => {
-    const { gross, taxWithheld, payDate, ...payDetails } = parsePayStubText(text);
+  const applyStub = (person, r) => {
+    const { gross, taxWithheld, payDate, ...payDetails } = r;
     setData((d) => ({ ...d, incomeLog: [{ id: uid(), person, date: payDate || new Date().toISOString().slice(0, 10), gross, taxWithheld, oneTime: false, source: "paystub", ...PAY_DETAIL_DEFAULTS, ...payDetails }, ...(d.incomeLog || [])] }));
   };
   const uploadStub = async (person, file) => {
-    if (!file) return; setBusy(true);
+    if (!file) return; setBusy(true); setStubError("");
     try {
-      const { text } = await extractFromFile(file);
-      applyStubText(person, text);
-    } catch (e) {}
+      const { result } = await extractDocumentAI(file, "paystub");
+      applyStub(person, result);
+    } catch (e) { setStubError("Couldn't read that pay stub. Try a clearer photo/PDF, or log it manually below."); }
     setBusy(false);
   };
   const captureStub = async (person) => {
-    setBusy(true);
+    setBusy(true); setStubError("");
     try {
-      const result = await extractFromNativeCamera();
-      if (result) applyStubText(person, result.text);
-    } catch (e) {}
+      const dataUrl = await captureNativePhoto();
+      if (dataUrl) { const { result } = await extractDocumentAINative(dataUrl, "paystub"); applyStub(person, result); }
+    } catch (e) { setStubError("Couldn't read that pay stub. Try a clearer photo, or log it manually below."); }
     setBusy(false);
   };
 
@@ -1717,6 +1555,7 @@ function IncomeTracker({ data, setData }) {
               )}
               <button onClick={() => saveTemplate(pp.key)} className="text-xs text-stone-500 hover:text-stone-700">Save as template</button>
             </div>
+            {stubError && <p className="text-xs text-rose-600 mt-1">{stubError}</p>}
             {/* recurring templates */}
             {templates.filter((tp) => tp.person === pp.key).length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -2423,14 +2262,15 @@ function DebtsBills({ data, setData }) {
   const addCat = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
   const [statementBusy, setStatementBusy] = useState(false);
   const [statementTxns, setStatementTxns] = useState(null);
+  const [statementError, setStatementError] = useState("");
   const onStatementFile = async (file) => {
     if (!file) return;
-    setStatementBusy(true);
+    setStatementBusy(true); setStatementError("");
     try {
-      const text = await extractAllPdfText(file);
-      const txns = parseStatementTransactions(text).map((t) => ({ ...t, category: categorizeTransaction(t.description, cats) }));
+      const { result } = await extractDocumentAI(file, "statement", cats);
+      const txns = (result.transactions || []).map((t) => ({ id: uid(), date: t.date, description: t.merchant, amount: num(t.amount), isCredit: !!t.isCredit, include: !t.isCredit, category: t.category }));
       setStatementTxns(txns);
-    } catch (e) { setStatementTxns([]); }
+    } catch (e) { setStatementError("Couldn't read that statement. Try a clearer PDF, or add transactions manually as receipts."); setStatementTxns(null); }
     setStatementBusy(false);
   };
   const updTxn = (id, patch) => setStatementTxns((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -2495,13 +2335,14 @@ function DebtsBills({ data, setData }) {
           <h3 className="font-medium text-stone-700">Lines of credit & credit cards</h3>
           <div className="flex items-center gap-2">
             {statementBusy ? (
-              <span className="flex items-center gap-1 text-sm text-stone-400"><Sparkles size={14} className="animate-pulse" /> Reading statement…</span>
+              <span className="flex items-center gap-1 text-sm text-stone-400"><Sparkles size={14} className="animate-pulse" /> Reading statement with AI…</span>
             ) : (
-              <label className="flex items-center gap-1 text-sm text-stone-600 hover:text-stone-800 cursor-pointer px-3 py-1.5 rounded-lg border border-stone-300 hover:border-stone-400"><Upload size={14} /> Import statement<input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => onStatementFile(e.target.files[0])} /></label>
+              <label className="flex items-center gap-1 text-sm text-stone-600 hover:text-stone-800 cursor-pointer px-3 py-1.5 rounded-lg border border-stone-300 hover:border-stone-400"><Upload size={14} /> Import statement<input type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={(e) => onStatementFile(e.target.files[0])} /></label>
             )}
             <button onClick={addDebt} className="text-sm flex items-center gap-1 text-teal-700"><Plus size={14} /> Add debt</button>
           </div>
         </div>
+        {statementError && <p className="text-xs text-rose-600 mb-3">{statementError}</p>}
         {showOwner && debts.length > 0 && <div className="mb-3"><OwnerFilter value={debtOwnerFilter} onChange={setDebtOwnerFilter} household={household} /></div>}
         {statementTxns !== null && (
           <div className="mb-3 bg-stone-50 rounded-xl p-3">
@@ -2615,6 +2456,7 @@ function Receipts({ data, setData, shared }) {
   const receipts = data.receipts || [];
   const [images, setImages] = useState({});
   const [busy, setBusy] = useState(null);
+  const [extractError, setExtractError] = useState(null);
   const [filter, setFilter] = useState("All");
   const [newCat, setNewCat] = useState("");
   const [showCats, setShowCats] = useState(false);
@@ -2652,28 +2494,29 @@ function Receipts({ data, setData, shared }) {
     setImages((m) => { const n = { ...m }; delete n[id]; return n; });
     try { await window.storage.delete(`receipt-img:${id}`, shared); } catch (e) {}
   };
-  const applyExtraction = async (id, dataUrl, text) => {
-    setImages((m) => ({ ...m, [id]: dataUrl }));
-    updR(id, { hasImage: true, photoAddedAt: Date.now(), photoExpired: false });
-    await window.storage.set(`receipt-img:${id}`, dataUrl, shared);
-    const { amount, date, merchant } = parseReceiptText(text);
-    updR(id, { label: merchant, date, amount, category: cats[0] || "Other" });
+  const applyExtraction = async (id, dataUrl, result) => {
+    if (dataUrl) {
+      setImages((m) => ({ ...m, [id]: dataUrl }));
+      updR(id, { hasImage: true, photoAddedAt: Date.now(), photoExpired: false });
+      await window.storage.set(`receipt-img:${id}`, dataUrl, shared);
+    }
+    updR(id, { label: result.merchant, date: result.date, amount: result.amount, category: cats.includes(result.category) ? result.category : (cats[0] || "Other") });
   };
   const onFile = async (id, file) => {
     if (!file) return;
-    setBusy(id);
+    setBusy(id); setExtractError(null);
     try {
-      const { dataUrl, text } = await extractFromFile(file);
-      await applyExtraction(id, dataUrl, text);
-    } catch (e) {}
+      const { dataUrl, result } = await extractDocumentAI(file, "receipt", cats);
+      await applyExtraction(id, dataUrl, result);
+    } catch (e) { setExtractError({ id, message: "Couldn't read that receipt. Try a clearer photo/PDF, or fill it in manually." }); }
     setBusy(null);
   };
   const onNativeCapture = async (id) => {
-    setBusy(id);
+    setBusy(id); setExtractError(null);
     try {
-      const result = await extractFromNativeCamera();
-      if (result) await applyExtraction(id, result.dataUrl, result.text);
-    } catch (e) {}
+      const dataUrl0 = await captureNativePhoto();
+      if (dataUrl0) { const { dataUrl, result } = await extractDocumentAINative(dataUrl0, "receipt", cats); await applyExtraction(id, dataUrl, result); }
+    } catch (e) { setExtractError({ id, message: "Couldn't read that receipt. Try a clearer photo, or fill it in manually." }); }
     setBusy(null);
   };
   const addCatValue = (c) => { if (c && !cats.includes(c)) setData((d) => ({ ...d, receiptCategories: [...(d.receiptCategories || []), c] })); };
@@ -2700,7 +2543,7 @@ function Receipts({ data, setData, shared }) {
         </Card>
       )}
       <Card className="bg-teal-50 border-teal-200">
-        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap a photo or upload a PDF. We read the merchant, date, and total automatically (PDF receipts read their text directly; photos and scanned PDFs use OCR). Accuracy varies; fix anything off or type it in. Set "Apply to" so it counts toward a rental or one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
+        <div className="flex gap-2 text-sm text-teal-800"><Sparkles size={18} className="shrink-0 mt-0.5" /><p>Snap a photo or upload a PDF. AI reads the merchant, date, total, and category automatically. Accuracy varies; fix anything off or type it in. Set "Apply to" so it counts toward a rental or one-time expenses. Photos auto-clear after {RECEIPT_EXPIRY_DAYS} days.</p></div>
       </Card>
       {receipts.length > 1 && (
         <div className="flex items-center gap-2"><span className="text-xs text-stone-500">Filter</span>
@@ -2731,8 +2574,9 @@ function Receipts({ data, setData, shared }) {
             {isExpanded(r.id) && (
               <div className="p-3">
                 {busy === r.id && (
-                  <div className="flex items-center gap-1.5 text-xs text-teal-700 mb-2"><Sparkles size={12} className="animate-pulse" /> Reading receipt with OCR…</div>
+                  <div className="flex items-center gap-1.5 text-xs text-teal-700 mb-2"><Sparkles size={12} className="animate-pulse" /> Reading receipt with AI…</div>
                 )}
+                {extractError?.id === r.id && <p className="text-xs text-rose-600 mb-2">{extractError.message}</p>}
                 <div className="flex gap-3">
                   <div className="w-20 shrink-0">
                     {images[r.id]
