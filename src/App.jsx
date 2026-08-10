@@ -28,8 +28,6 @@ const T776_LINES = [
 
 const PERSONAL_KEY = "family-finance-tracker-v1";
 const FAMILY_KEY = "family-finance-tracker-shared-v1";
-const ONBOARD_KEY = "cabintree-onboarded-v1";
-const TOUR_KEY = "cabintree-tour-v1";
 // tabId: null steps don't switch the visible tab (welcome/closing). Every other step drives the
 // real sidebar tab as the tour advances, so the user sees the actual live tab, not a description.
 const TOUR_STEPS = [
@@ -1048,7 +1046,9 @@ export default function App() {
   };
 
   const loadUserContext = async (sessionUser) => {
-    const { data: profile } = await supabase.from("profiles").select("active_household_id").eq("id", sessionUser.id).single();
+    const { data: profile } = await supabase.from("profiles").select("active_household_id, onboarded, tour_completed").eq("id", sessionUser.id).single();
+    if (!profile?.onboarded) setOnboard(true);
+    if (!profile?.tour_completed) setShowTour(true);
     if (profile?.active_household_id) {
       setHouseholdId(profile.active_household_id);
       await loadHouseholdData(profile.active_household_id);
@@ -1063,8 +1063,6 @@ export default function App() {
         if (sessionUser) {
           setUser(sessionUser);
           await loadUserContext(sessionUser);
-          try { const o = await window.storage.get(ONBOARD_KEY); if (!o || !o.value) setOnboard(true); } catch (e) { setOnboard(true); }
-          try { const t = await window.storage.get(TOUR_KEY); if (!t || !t.value) setShowTour(true); } catch (e) {}
         }
       } catch (err) {
         console.log("Auth check: no session or error loading data");
@@ -1094,8 +1092,6 @@ export default function App() {
     setLoaded(false);
     (async () => {
       await loadUserContext(user);
-      try { const o = await window.storage.get(ONBOARD_KEY); if (!o || !o.value) setOnboard(true); } catch (e) { setOnboard(true); }
-      try { const t = await window.storage.get(TOUR_KEY); if (!t || !t.value) setShowTour(true); } catch (e) {}
       setLoaded(true);
     })();
   }, [user, householdId]);
@@ -1237,14 +1233,14 @@ export default function App() {
         return next;
       });
     }
-    window.storage.set(ONBOARD_KEY, "1").catch(() => {});
+    supabase.from("profiles").update({ onboarded: true }).eq("id", user.id).then(() => {});
     setOnboard(false);
     setTab("dashboard");
   };
   if (onboard) return <Onboarding onFinish={finishOnboarding} />;
 
   const closeTour = () => {
-    window.storage.set(TOUR_KEY, "1").catch(() => {});
+    supabase.from("profiles").update({ tour_completed: true }).eq("id", user.id).then(() => {});
     setShowTour(false);
   };
   const startTour = () => { setTourStep(0); setTab("dashboard"); setShowTour(true); };
@@ -1769,6 +1765,14 @@ function Dashboard({ data, setData }) {
   const childcareTotal = (data.childcare || []).reduce((s, e) => s + num(e.amount), 0);
   if (hasP2(data.household) && childcareTotal > 0) {
     insights.push({ tone: "good", text: `With childcare expenses logged, remember the lower-net-income spouse generally must claim the deduction (line 21400), with narrow exceptions. Per CRA's Line 21400 guidance.` });
+  }
+  const homeWithEquity = data.properties.find((p) => p.occupancy === "partial" && num(p.personalUsePct) >= 50 && propEquity(p) > 0);
+  if (homeWithEquity) {
+    insights.push({ tone: "good", text: `You have ${fmt(propEquity(homeWithEquity))} of equity in a home you live in: the Smith Manoeuvre uses a readvanceable HELOC to convert that non-deductible mortgage into a tax-deductible investment loan as you pay it down. It uses leverage and isn't for everyone; see the Tax Report tab for how it works.` });
+  }
+  const rrspValue = num(data.investments?.rrsp?.p1?.value) + num(data.investments?.rrsp?.p2?.value);
+  if (data.properties.length === 0 && rrspValue > 0) {
+    insights.push({ tone: "good", text: `As a first-time home buyer, you could withdraw up to $60,000 tax-free from your RRSP toward a home purchase (Home Buyers' Plan), repaid over 15 years. Per the CRA's Home Buyers' Plan rules.` });
   }
 
   const spend = [
@@ -3483,6 +3487,16 @@ function TaxReport({ data, setData }) {
           <div className="flex justify-between"><span>TFSA {year} room</span><span>$7,000 (unused room carries forward)</span></div>
         </div>
         <p className="text-xs text-emerald-700 mt-2">TFSA and RESP contributions aren't deductible, but RESP earns the CESG grant. Per the CRA: RRSP contributions made in the first 60 days of the following year can still be claimed against {year}, and TFSA room never expires if you don't use it.</p>
+      </Card>
+      <Card className="bg-emerald-50 border-emerald-200">
+        <h3 className="font-medium text-emerald-800 mb-2 inline-flex items-center gap-1">Tax-saving strategies to know<InfoTip text="General educational strategies, not personalized advice. Whether any of these fit your situation depends on your full financial picture — confirm with a tax professional or advisor before acting." /></h3>
+        <ul className="text-sm text-emerald-900 space-y-2 list-disc pl-4">
+          <li><strong>Smith Manoeuvre:</strong> if you have a mortgage on a home you live in, a readvanceable HELOC lets you re-borrow the principal as you pay it down and invest it. Interest on money borrowed to earn investment income (dividends or interest, not pure capital-gains bets) is deductible under Income Tax Act 20(1)(c) — RRSP/TFSA contributions don't qualify since they don't produce taxable income. This uses leverage and amplifies losses as well as gains, so it isn't right for everyone.</li>
+          <li><strong>Donate stock instead of cash:</strong> gifting publicly traded securities directly to a registered charity (rather than selling first and donating the cash) eliminates the capital gains tax on the growth entirely, while you still get a donation receipt for the full fair market value.</li>
+          <li><strong>Pension income splitting:</strong> up to 50% of eligible pension income (RRIF/annuity payments after 65, or employer pension income at any age) can be allocated to a spouse's return via CRA Form T1032, which can lower the couple's combined tax.</li>
+          <li><strong>Home Buyers' Plan:</strong> first-time buyers can withdraw up to $60,000 from an RRSP tax-free toward a home purchase, repaid back into the RRSP over 15 years.</li>
+        </ul>
+        <p className="text-xs text-emerald-700 mt-2">Sourced from CRA's Income Tax Folio S3-F6-C1 (interest deductibility), Form T1032 (pension splitting), the gifts-of-securities and Home Buyers' Plan pages on canada.ca.</p>
       </Card>
       <Card className="bg-amber-50 border-amber-200"><div className="flex gap-2 text-sm text-amber-800"><AlertCircle size={18} className="shrink-0 mt-0.5" /><p>Organizes your records to CRA categories for {year}. A record-keeping aid, not tax advice or a filed return.</p></div></Card>
     </div>
